@@ -1,0 +1,1655 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>年の街 – Stadt der Jahre</title>
+<style>
+/* SCHRIFTEN: build.py bettet hier Shippori Mincho und Big Shoulders Display ein.
+   Ohne Build nutzt die Seite die Systemschriften. */
+/*FONTS*/
+
+:root{
+  --ink:#020509;
+  --paper:#F4F8FA;
+  --fog:#B7C8D3;
+  --dim:#8098A7;
+  --line:rgba(244,248,250,.16);
+  --cold:#3D6DF2;--cool:#86BEFF;--norm:#CDD3DA;--warm:#FF8A3D;--hot:#F0263C;
+  --mincho:"Shippori Mincho","Yu Mincho","YuMincho","Hiragino Mincho ProN","Noto Serif JP","MS Mincho",serif;
+  --tall:"Big Shoulders Display","Big Shoulders","Bahnschrift","Arial Narrow",sans-serif;
+  /* werden per JS aus der Geometrie gesetzt */
+  --padL:140px;--padR:40px;--top:120px;--laneTop:480px;--laneBot:525px;--euEnd:760px;--stripTop:790px;--stripH:290px;
+  --wl:.9;
+}
+body.beamer{--fog:#E2EBF0;--dim:#C4D2DB}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{background:var(--ink);color:var(--paper);font-family:var(--mincho);-webkit-font-smoothing:antialiased}
+p,h1,h2{margin:0}
+[lang="ja"]{word-break:auto-phrase;line-break:strict}
+body.calm{cursor:none}
+
+/* Ebenen: Feld (WebGL) → Stadt (SVG) → Glut (Canvas) → Text */
+#field,#city,#embers,.vign{position:fixed;inset:0;width:100%;height:100%;display:block}
+#field{z-index:0}
+#city{z-index:1;overflow:visible;transition:opacity .8s ease}
+#embers{z-index:2;pointer-events:none;mix-blend-mode:screen}
+.vign{z-index:3;pointer-events:none;background:linear-gradient(180deg,rgba(2,5,9,.9) 0,rgba(2,5,9,.45) calc(var(--top) * .8),rgba(2,5,9,0) calc(var(--top) + 5vh))}
+body.glost{background:linear-gradient(180deg,#05080c 0%,#2a1014 28%,#3a1418 46%,#0b2232 54%,#04101a 75%,#020509 100%)}
+body.glost #field{display:none}
+.s-coda #city{opacity:.28}
+
+/* ------------------------------ Stadt ------------------------------ */
+.lane{fill:rgba(2,5,9,.88);stroke:rgba(244,248,250,.18);stroke-width:1}
+.kdot{fill:rgba(244,248,250,.34)}
+.axis{font-family:var(--tall);font-weight:700;fill:var(--fog);text-anchor:middle;dominant-baseline:central;letter-spacing:.02em}
+.pill{opacity:0;transition:opacity .35s ease,transform .45s cubic-bezier(.2,.85,.2,1)}
+.s-play .pill{opacity:1}
+.pill rect{fill:var(--paper)}
+.pill text{font-family:var(--tall);font-weight:900;fill:var(--ink);text-anchor:middle;dominant-baseline:central}
+.beam{stroke:rgba(255,255,255,.5);stroke-width:1.2;opacity:0;transition:opacity .4s ease,transform .45s cubic-bezier(.2,.85,.2,1)}
+.s-play .beam{opacity:1}
+
+.tw{transform-box:fill-box;transform:scaleY(0);transition:transform .5s cubic-bezier(.6,0,.85,.35) var(--cd,0s)}
+.tw.on{transform:scaleY(1);transition:transform .8s cubic-bezier(.2,1.45,.35,1) 0s}
+.s-idle .tw{transform:scaleY(1);transition:transform 1.4s cubic-bezier(.2,.8,.2,1) calc(var(--i) * 18ms)}
+.sil{fill:#03070B;stroke:rgba(244,248,250,.07);stroke-width:1}
+.win{opacity:calc(var(--wo) * var(--wl));transition:opacity 1.2s ease}
+.rim{opacity:0;transition:opacity .5s ease}
+.tw.on .rim{opacity:.95}
+.tw.cur .rim{opacity:1;filter:drop-shadow(0 0 5px var(--c)) drop-shadow(0 0 14px var(--c))}
+.tw.cur .sil,.tw.hot .sil{stroke:var(--c);stroke-opacity:.75}
+.tw.hot .sil{stroke-width:1.6}
+.tw.hot .rim{animation:hotpulse 1.6s ease-in-out infinite}
+@keyframes hotpulse{50%{filter:brightness(1.8) drop-shadow(0 0 10px var(--c))}}
+.s-play{--wl:.42}.s-end{--wl:.3}.s-coda{--wl:.18}
+.hit{fill:transparent;cursor:crosshair}
+
+/* Trendlinien: erst der Beweis, dann der Satz */
+.tl{fill:none;stroke-linecap:round;stroke-dasharray:var(--len);stroke-dashoffset:var(--len);opacity:0}
+.tl.core{stroke:#fff;stroke-width:3.2}
+.tl.glow{stroke-width:16}
+.tl.glow.jp{stroke:rgba(255,110,70,.4)}
+.tl.glow.eu{stroke:rgba(134,190,255,.4)}
+.lines .tl{opacity:1;animation:draw 1.9s cubic-bezier(.3,.7,.2,1) forwards}
+.lines .tl.eu{animation-delay:.45s}
+@keyframes draw{to{stroke-dashoffset:0}}
+.slope{opacity:0;transition:opacity .7s ease}
+.lines .slope{opacity:1;transition-delay:1.1s}
+.lines .slope.eu{transition-delay:1.55s}
+.sn{font-family:var(--tall);font-weight:900;fill:#fff;paint-order:stroke;stroke:rgba(2,5,9,.9);stroke-width:7px;stroke-linejoin:round}
+.ss{font-family:var(--mincho);font-weight:600;fill:var(--fog);paint-order:stroke;stroke:rgba(2,5,9,.9);stroke-width:5px;stroke-linejoin:round}
+
+/* Rekorde */
+.rec{opacity:0;transition:opacity .4s ease}
+.rec.on{opacity:1}
+.s-end .rec.on{opacity:.45}
+.rec .ring{fill:none;stroke:var(--hot);stroke-width:2.2;transform-box:fill-box;transform-origin:center;opacity:0}
+.rec.burst .ring{animation:ringout 1.2s cubic-bezier(.2,.7,.3,1)}
+@keyframes ringout{from{transform:scale(.2);opacity:1}to{transform:scale(4);opacity:0}}
+.rec .dia{fill:var(--hot)}
+.rec.eu .dia{fill:var(--warm)}
+.rec .tag{font-family:var(--mincho);font-weight:800;fill:#fff;text-anchor:middle;paint-order:stroke;stroke:rgba(2,5,9,.92);stroke-width:4px;stroke-linejoin:round}
+
+/* ------------------------------ Kopf ------------------------------ */
+.top,.band,.strip{transition:opacity .7s ease}
+.s-coda .top,.s-coda .band,.s-coda .strip{opacity:0}
+.top{position:fixed;z-index:5;left:var(--padL);right:var(--padR);top:0;height:var(--top);display:flex;justify-content:space-between;align-items:flex-end;gap:3vw;padding-bottom:1.4vh;pointer-events:none}
+.title{transition:opacity .8s ease}
+.title h1{display:flex;align-items:baseline;flex-wrap:wrap;gap:.3em 1.1vw;line-height:1;font-weight:400}
+.t-jp{font-weight:800;font-size:clamp(30px,5.2vh,64px);letter-spacing:.1em}
+.t-de{font-family:var(--tall);font-weight:800;font-size:clamp(26px,4.4vh,54px)}
+.title p{margin-top:.9vh;font-size:clamp(13px,1.7vh,18px);color:var(--fog);line-height:1.45}
+.title p span{display:block}
+.s-play .title,.s-end .title{opacity:.28}
+.legend{flex:0 0 auto;width:clamp(230px,19vw,340px);font-size:clamp(13px,1.55vh,16px);color:var(--fog);line-height:1.3}
+.lg-ends,.lg-ticks{display:flex;justify-content:space-between}
+.lg-bar{height:10px;border-radius:5px;margin:.7vh 0;background:linear-gradient(90deg,var(--cold),var(--cool) 25%,var(--norm) 50%,var(--warm) 75%,var(--hot))}
+.lg-ticks span{font-family:var(--tall);font-weight:700;font-size:1.05em;color:var(--paper)}
+.lg-ticks span:nth-child(2){font-family:var(--mincho);font-weight:400;font-size:.9em;color:var(--fog)}
+.lg-note{margin-top:.7vh;font-size:.92em}
+
+/* Meeresnamen am linken Rand */
+.band{position:fixed;z-index:5;left:0;width:var(--padL);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.2vh;pointer-events:none;text-align:center}
+.band.jp{top:var(--top);height:calc(var(--laneTop) - var(--top))}
+.band.eu{top:var(--laneBot);height:calc(var(--euEnd) - var(--laneBot))}
+.band .v{writing-mode:vertical-rl;font-weight:800;font-size:clamp(26px,4.6vh,56px);letter-spacing:.14em;line-height:1}
+.band .d{font-family:var(--tall);font-weight:700;font-size:clamp(13px,1.6vh,17px);color:var(--fog);line-height:1.2}
+
+/* Jahrzehnt-Blitz */
+.decade{position:fixed;z-index:6;left:0;top:0;pointer-events:none;text-align:center;opacity:0;transform:translate(-50%,-100%)}
+.decade b{display:block;font-family:var(--tall);font-weight:900;font-size:clamp(56px,11vh,140px);line-height:.85;color:#fff;text-shadow:0 0 30px rgba(2,5,9,.8)}
+.decade span{display:block;margin-top:.4vh;font-size:clamp(14px,1.9vh,21px);color:var(--fog);text-shadow:0 0 12px rgba(2,5,9,.9)}
+.decade.go{animation:dec 1.3s cubic-bezier(.2,.8,.2,1) forwards}
+@keyframes dec{0%{opacity:0;transform:translate(-50%,-80%) scale(1.25);filter:blur(8px)}18%{opacity:1;transform:translate(-50%,-100%) scale(1);filter:blur(0)}72%{opacity:1}100%{opacity:0;transform:translate(-50%,-114%)}}
+
+/* ------------------------- Untere Leiste ------------------------- */
+.strip{position:fixed;z-index:5;left:0;right:0;top:var(--stripTop);bottom:0;pointer-events:none;
+  background:linear-gradient(180deg,rgba(2,5,9,0) 0,rgba(2,5,9,.74) 18%,rgba(2,5,9,.9) 60%,rgba(2,5,9,.95) 100%)}
+.layer{position:absolute;left:var(--padL);right:var(--padR);top:2.2vh;bottom:5.4vh;display:flex;align-items:center;opacity:0;transform:translateY(22px);transition:opacity .7s ease,transform .8s cubic-bezier(.2,.8,.2,1)}
+.s-idle .idlebox,.s-play .board,.s-end.reveal .finale{opacity:1;transform:none}
+.s-end:not(.reveal) .board{opacity:.28;transform:none}
+
+/* Ruhe: Einladung */
+.idlebox{justify-content:space-between;gap:4vw}
+.cta{display:flex;align-items:center;gap:2.2vw;min-width:0}
+.arrow{width:calc(var(--stripH) * .3);height:calc(var(--stripH) * .3);flex:0 0 auto;overflow:visible}
+.arrow path{fill:none;stroke:#fff;stroke-width:5;stroke-linecap:round;stroke-linejoin:round}
+.arrow .a1{animation:chev 1.6s ease-in-out infinite}
+.arrow .a2{animation:chev 1.6s ease-in-out .2s infinite}
+@keyframes chev{0%,100%{transform:translateY(-6px);opacity:.25}50%{transform:translateY(6px);opacity:1}}
+.obj-left .arrow{transform:rotate(90deg)}
+.obj-right .arrow{transform:rotate(-90deg)}
+.ask{font-weight:800;font-size:clamp(26px,min(calc(var(--stripH) * .2),3.9vw),78px);letter-spacing:.06em;white-space:nowrap;line-height:1.1;animation:breathe 3.6s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:.8}50%{opacity:1}}
+.ask-de{margin-top:.8vh;font-family:var(--tall);font-weight:800;font-size:clamp(22px,min(calc(var(--stripH) * .13),2.6vw),52px);line-height:1}
+.promise{margin-top:1.4vh;font-size:clamp(15px,2vh,22px);color:var(--fog);line-height:1.45}
+.promise span{display:block}
+.facts{max-width:min(40vw,700px);transition:opacity .9s ease}
+.facts.out{opacity:0}
+.facts::before{content:"";display:block;width:44px;height:3px;background:var(--warm);margin-bottom:1.6vh}
+.facts p:first-child{font-size:clamp(17px,2.4vh,26px);line-height:1.6}
+.facts p + p{margin-top:.8vh;font-size:clamp(15px,2vh,22px);color:var(--fog);line-height:1.5}
+
+/* Durchlauf: Anzeigetafel */
+.board{gap:clamp(24px,4vw,90px);flex-wrap:wrap}
+.yr{display:flex;font-family:var(--tall);font-weight:900;font-size:min(calc(var(--stripH) * .6),16vw);line-height:1;letter-spacing:-.015em;color:#fff}
+.dg{display:block;height:1em;overflow:hidden}
+.roll{display:flex;flex-direction:column;transition:transform .5s cubic-bezier(.2,.9,.2,1)}
+.roll b{display:block;height:1em;line-height:1em;font-weight:900;text-align:center}
+.cell{min-width:0}
+.lab{font-size:clamp(15px,2.1vh,22px);color:var(--fog);white-space:nowrap}
+.lab [lang="ja"]{font-weight:800;color:var(--paper);margin-right:.6em;font-size:1.15em}
+.num{font-family:var(--tall);font-weight:800;font-size:min(calc(var(--stripH) * .33),9vw);line-height:.95;font-variant-numeric:tabular-nums;white-space:nowrap;transition:color .35s ease}
+.num small{font-size:.38em;font-weight:600;margin-left:.08em;color:var(--fog)}
+.num .empty{color:var(--dim)}
+.num.bump{animation:bump .34s cubic-bezier(.2,.8,.2,1)}
+@keyframes bump{from{transform:translateY(.14em);opacity:.35}to{transform:none;opacity:1}}
+.th{position:relative;height:6px;margin-top:1.1vh;border-radius:3px;width:clamp(140px,13vw,260px);background:linear-gradient(90deg,var(--cold),var(--cool) 25%,var(--norm) 50%,var(--warm) 75%,var(--hot));opacity:.55}
+.th i{position:absolute;top:-5px;left:50%;width:4px;height:16px;border-radius:2px;background:#fff;transform:translateX(-50%);box-shadow:0 0 10px #fff;transition:left .45s cubic-bezier(.2,.9,.2,1)}
+
+/* Finale */
+.finale{gap:3vw}
+.x{font-weight:800;font-size:min(calc(var(--stripH) * .5),14vw);line-height:1;letter-spacing:.02em;white-space:nowrap;color:#fff;text-shadow:0 0 40px rgba(240,38,60,.6),0 0 110px rgba(255,138,61,.3)}
+.x .ch{display:inline-block;opacity:0}
+.reveal .x .ch{animation:slam .9s cubic-bezier(.2,1.3,.3,1) forwards;animation-delay:calc(var(--k) * 120ms)}
+@keyframes slam{from{opacity:0;transform:scale(1.8);filter:blur(14px)}to{opacity:1;transform:none;filter:none}}
+.fin-text{min-width:0;opacity:0}
+.reveal .fin-text{animation:rise 1s cubic-bezier(.2,.8,.2,1) .5s forwards}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.calc{font-family:var(--tall);font-weight:700;font-size:clamp(18px,2.6vh,30px);color:var(--fog);line-height:1.2}
+.calc b{font-weight:900;color:#fff}
+.calc .j b{color:var(--warm)}
+.calc .e b{color:var(--cool)}
+.calc i{font-style:normal;margin:0 .3em;color:var(--dim)}
+.calc .r{font-size:1.25em}
+.calc small{margin-left:.6em;font-family:var(--mincho);font-weight:400;font-size:.62em}
+.s-jp{margin-top:1vh;font-weight:700;font-size:clamp(17px,2.5vh,30px);line-height:1.5}
+.s-de{margin-top:.5vh;font-size:clamp(15px,2.05vh,24px);line-height:1.45;opacity:.92}
+.s-note{margin-top:1vh;font-size:clamp(12px,1.45vh,15px);line-height:1.5;color:var(--dim)}
+.s-note span{display:block}
+.foot{position:absolute;left:var(--padL);right:var(--padR);bottom:1.6vh;display:flex;justify-content:space-between;gap:2vw;font-size:clamp(12px,1.45vh,15px);color:var(--dim);line-height:1.4}
+
+/* ------------------------------ Fazit ------------------------------ */
+.coda{position:fixed;inset:0;z-index:9;display:grid;grid-template-columns:minmax(360px,38vw) 1fr;grid-template-rows:1fr auto;column-gap:4.5vw;padding:7vh 5vw 4vh;
+  background:radial-gradient(130% 100% at 72% 50%,rgba(2,5,9,.66),rgba(2,5,9,.95));opacity:0;pointer-events:none;transition:opacity .9s ease;cursor:pointer}
+.s-coda .coda{opacity:1;pointer-events:auto}
+body.calm .coda{cursor:none}
+.c-text{align-self:center;min-width:0}
+.c-kick{display:flex;align-items:baseline;flex-wrap:wrap;gap:.4em 1em;font-size:clamp(16px,2vh,21px);color:var(--fog)}
+.c-idx{font-family:var(--tall);font-weight:800;color:var(--warm)}
+.c-kick [lang="ja"]{font-weight:800;color:var(--paper);letter-spacing:.08em}
+.c-kick [lang="de"]{font-family:var(--tall);font-weight:700}
+.c-jp{margin-top:2.2vh;font-weight:800;font-size:clamp(30px,5.2vh,62px);line-height:1.32;letter-spacing:.03em;text-wrap:balance}
+.c-de{margin-top:1.6vh;font-family:var(--tall);font-weight:700;font-size:clamp(22px,3.5vh,42px);line-height:1.12;text-wrap:balance}
+.wipe{clip-path:inset(-20% 100% -20% -5%);filter:blur(6px);transition:clip-path 1.1s cubic-bezier(.6,0,.2,1),filter 1.1s ease}
+.wipe.in{clip-path:inset(-20% -5% -20% -5%);filter:none}
+.c-detail{margin-top:4vh;padding-left:1.2vw;border-left:3px solid var(--warm);opacity:0;transform:translateY(10px);transition:opacity .9s ease,transform .9s ease}
+.c-detail.in{opacity:1;transform:none}
+.c-detail.cta{border-left-color:#fff}
+.c-djp{font-size:clamp(17px,2.35vh,25px);line-height:1.6}
+.c-dde{margin-top:.5vh;font-size:clamp(15px,2.05vh,22px);line-height:1.5;color:var(--fog)}
+.c-detail.cta .c-djp{font-weight:800;font-size:clamp(20px,3vh,34px)}
+.c-detail.cta .c-dde{color:var(--paper)}
+.c-src{margin-top:3.5vh;font-size:clamp(12px,1.45vh,15px);color:var(--dim);line-height:1.5}
+.c-vis{align-self:center;min-width:0;min-height:0;height:100%;display:flex;align-items:center;justify-content:center;gap:2vw;opacity:0;transition:opacity 1s ease .2s}
+.c-vis.in{opacity:1}
+.c-vis figure{margin:0;flex:1;min-width:0;display:flex;flex-direction:column;transition:opacity 1.2s ease}
+.c-vis figure.dim{opacity:.18}
+.c-vis figure.dim.in{opacity:1}
+.c-vis figcaption{font-weight:800;font-size:clamp(16px,2.3vh,24px);margin:0 0 1vh;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.c-vis figcaption span{font-family:var(--tall);font-weight:700;margin-left:.6em;color:var(--fog);font-size:.9em}
+.c-vis svg.map{width:100%;height:auto;max-height:70vh;display:block}
+.c-vis:not(.two) figure{flex:0 1 auto;width:min(100%,88vh)}
+.c-prog{grid-column:1 / -1;display:flex;gap:10px;margin-top:3vh}
+.c-prog span{flex:1;height:4px;border-radius:2px;background:rgba(244,248,250,.14);overflow:hidden}
+.c-prog i{display:block;height:100%;width:0;background:#fff}
+.c-prog span.done i{width:100%}
+.c-hint{position:absolute;right:5vw;bottom:1.2vh;font-size:13px;color:var(--dim)}
+.land{fill:#0D2232;stroke:rgba(183,200,211,.5);stroke-width:.8}
+.flow{fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:10 9;animation:flow 1.1s linear infinite}
+.flow.warm{stroke:var(--warm)}
+.flow.thick{stroke-width:5.5}
+.flow.cool{stroke:var(--cool)}
+.flow.faint{opacity:.3}
+@keyframes flow{to{stroke-dashoffset:-19}}
+.ring{fill:none;stroke:#fff;stroke-width:2}
+.area{fill:rgba(134,190,255,.06);stroke:#fff;stroke-width:1.5;stroke-dasharray:6 6}
+.mlbl text{paint-order:stroke;stroke:rgba(2,5,9,.92);stroke-width:4px;stroke-linejoin:round}
+.mj{font-family:var(--mincho);font-weight:800;font-size:18px;fill:#fff}
+.md{font-family:var(--mincho);font-size:13.5px;fill:var(--fog)}
+.later{opacity:0;transition:opacity 1s ease}
+.later.in{opacity:1}
+.cod{transition:opacity 3.5s ease,transform 3.5s ease}
+.cod.leave{opacity:.14;transform:translateY(-28px)}
+.bars text{paint-order:stroke;stroke:rgba(2,5,9,.92);stroke-width:4px;stroke-linejoin:round}
+.bars .tall{font-family:var(--tall);font-weight:700;font-size:17px;fill:var(--paper)}
+.bar{transform-box:fill-box;transform-origin:50% 100%;transition:transform 1.6s cubic-bezier(.3,.7,.2,1)}
+.bar.old{fill:var(--cool)}
+.bar.new{fill:var(--warm)}
+.bar.shrink{transform:scaleY(.25)}
+.heat{text-align:center}
+.heat .big{font-family:var(--tall);font-weight:900;font-size:clamp(90px,21vh,230px);line-height:.9;color:var(--hot);text-shadow:0 0 50px rgba(240,38,60,.4);font-variant-numeric:tabular-nums}
+.heat .big small{font-family:var(--mincho);font-size:.3em;font-weight:600;margin-left:.08em;color:var(--paper)}
+.heat .cap{margin:1.4vh 0 0;font-size:clamp(15px,2.2vh,22px);line-height:1.5}
+.heat .cap span{color:var(--fog);font-size:.85em}
+.heat .mult{margin-top:5.5vh;display:flex;gap:5vw;justify-content:center;align-items:flex-end;font-family:var(--tall);font-weight:900;font-size:clamp(60px,12vh,140px);line-height:.95}
+.heat .mult small{display:block;margin-top:.6vh;font-family:var(--mincho);font-size:clamp(12px,1.7vh,16px);font-weight:600;line-height:1.4;color:var(--fog)}
+.heat .x10{color:var(--hot)}
+.donut{width:min(100%,82vh);height:auto}
+.donut .track{fill:none;stroke:rgba(244,248,250,.08);stroke-width:38}
+.donut .seg{fill:none;stroke-width:38;transition:stroke-dasharray 1.2s ease}
+.donut .dnum{font-family:var(--tall);font-weight:900;font-size:96px;fill:#fff}
+.bigwords p{font-weight:800;font-size:clamp(34px,7vh,90px);line-height:1.15;margin:0 0 2.4vh}
+.bigwords small{display:block;font-family:var(--tall);font-weight:700;font-size:.4em;color:var(--fog)}
+
+/* ------------------- Bedienung (blendet sich aus) ------------------- */
+.ctrl{position:fixed;z-index:12;top:1.4vh;right:var(--padR);max-width:72vw;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;align-items:center;transition:opacity .5s ease}
+body.calm .ctrl{opacity:0;pointer-events:none}
+/* Kopfzeile: Knöpfe in einer Reihe, Status darunter; Legende weicht, solange die Knöpfe sichtbar sind */
+.ctrl .status{order:10;flex-basis:100%;justify-content:flex-end;margin:2px 4px 0 0}
+.ctrl .warn{order:11;flex-basis:100%;text-align:right}
+.legend{transition:opacity .4s ease}
+body:not(.calm) .legend{opacity:0}
+.status{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--fog);margin-right:4px}
+.dot{width:9px;height:9px;border-radius:50%;background:#4a5d6b;display:inline-block}
+.dot.on{background:#5BE49B;box-shadow:0 0 0 3px rgba(91,228,155,.2)}
+.warn{font-size:13px;color:#FFB35C}
+.ctrl button{font:inherit;font-size:14px;color:var(--paper);cursor:pointer;background:rgba(6,17,26,.85);border:1px solid rgba(244,248,250,.24);border-radius:999px;padding:7px 14px}
+.ctrl button:hover{border-color:rgba(244,248,250,.7)}
+.ctrl button.main{background:var(--paper);color:var(--ink);border-color:var(--paper);font-weight:700}
+.ctrl button.act{background:rgba(255,138,61,.24);border-color:var(--warm)}
+.ctrl kbd{font-family:var(--tall);font-size:12px;opacity:.6;margin-left:4px}
+.ctrl button:focus-visible{outline:2px solid var(--cool);outline-offset:3px}
+.tip{position:fixed;z-index:11;pointer-events:none;opacity:0;transition:opacity .15s ease;background:rgba(2,5,9,.94);border:1px solid var(--line);border-radius:12px;padding:12px 16px;font-size:15px;line-height:1.5;min-width:210px}
+.tip.show{opacity:1}
+.tip b{display:block;font-family:var(--tall);font-weight:900;font-size:28px;line-height:1;margin-bottom:6px}
+.tip .r{display:flex;justify-content:space-between;gap:18px}
+.tip .r span:last-child{font-family:var(--tall);font-weight:700;font-size:18px}
+.tip em{font-style:normal;color:var(--warm);font-size:.85em;margin-left:.4em}
+.badge{position:fixed;z-index:12;left:50%;top:2vh;transform:translateX(-50%);font-family:var(--tall);font-weight:800;font-size:16px;padding:6px 16px;border-radius:999px;background:rgba(255,138,61,.2);border:1px solid var(--warm);opacity:0;transition:opacity .3s ease;pointer-events:none}
+.badge.show{opacity:1}
+
+/* Beamer: mehr Kontrast, größere Kleinschrift */
+.beamer .foot,.beamer .c-src,.beamer .s-note{font-size:clamp(14px,1.8vh,19px)}
+.beamer .legend{font-size:clamp(15px,1.9vh,19px)}
+.beamer .lab{font-size:clamp(17px,2.4vh,26px)}
+.beamer .band .d{font-size:clamp(15px,1.9vh,20px)}
+
+@media (max-width:900px),(orientation:portrait){
+  .legend,.facts,.foot span:last-child{display:none}
+  .idlebox{justify-content:flex-start}
+  .ask{white-space:normal}
+  .finale{flex-direction:column;align-items:flex-start;gap:1vh}
+  .coda{grid-template-columns:1fr;grid-template-rows:auto 1fr auto;overflow:auto}
+  .c-vis{flex-direction:column}
+}
+@media (prefers-reduced-motion:reduce){
+  .tw,.tw.on,.s-idle .tw{transition:transform .25s ease}
+  .ask,.arrow .a1,.arrow .a2,.flow,.tw.hot .rim{animation:none}
+  .decade.go{animation-duration:.01s}
+}
+</style>
+</head>
+<body class="s-idle">
+<canvas id="field" aria-hidden="true"></canvas>
+<svg id="city" role="img" aria-label="Zwei Städte am selben Horizont: oben das Japanische Meer, unten kopfüber die Nordsee. Ein Turm pro Jahr, 1982 bis 2024."></svg>
+<canvas id="embers" aria-hidden="true"></canvas>
+<div class="vign" aria-hidden="true"></div>
+
+<header class="top">
+  <div class="title">
+    <h1><span class="t-jp" lang="ja">年の街</span><span class="t-de" lang="de">Stadt der Jahre</span></h1>
+    <p><span lang="ja">海面水温の平年差（1991〜2020年の平均との差）</span><span lang="de">Meerestemperatur, Abweichung vom Mittel 1991–2020</span></p>
+  </div>
+  <div class="legend" aria-label="Farbskala">
+    <div class="lg-ends"><span>冷たい / kälter</span><span>暖かい / wärmer</span></div>
+    <div class="lg-bar"></div>
+    <div class="lg-ticks"><span>−2 °C</span><span>平年 normal</span><span>+2 °C</span></div>
+    <p class="lg-note">長い塔 = 暖かい年 / langer Turm = warmes Jahr<br>◆ 記録 = bisher wärmstes Jahr</p>
+  </div>
+</header>
+
+<div class="band jp"><span class="v" lang="ja">日本海</span><span class="d" lang="de">Japanisches<br>Meer ↑</span></div>
+<div class="band eu"><span class="v" lang="ja">北海</span><span class="d" lang="de">Nordsee und<br>NW-Europa ↓</span></div>
+
+<div class="decade" id="decade" aria-hidden="true"><b></b><span></span></div>
+
+<section class="strip">
+  <div class="layer idlebox">
+    <div class="cta">
+      <svg class="arrow" viewBox="0 0 100 100" aria-hidden="true"><path class="a1" d="M22 26 L50 54 L78 26"/><path class="a2" d="M22 50 L50 78 L78 50"/></svg>
+      <div>
+        <p class="ask" lang="ja">ボタンを押してください</p>
+        <p class="ask-de" lang="de">Drück den Knopf am Objekt</p>
+        <p class="promise"><span lang="ja">43年分の海の水温が、光と音になります。</span><span lang="de">43 Jahre Meerestemperatur werden zu Licht und Klang.</span></p>
+      </div>
+    </div>
+    <div class="facts" id="facts"><p lang="ja"></p><p lang="de"></p></div>
+  </div>
+
+  <div class="layer board">
+    <div class="yr" id="yr" aria-hidden="true"></div>
+    <div class="cell"><p class="lab"><span lang="ja">日本海</span><span lang="de">Japanisches Meer</span></p><p class="num" id="nJP"></p><div class="th"><i id="thJP"></i></div></div>
+    <div class="cell"><p class="lab"><span lang="ja">北海</span><span lang="de">Nordsee und NW-Europa</span></p><p class="num" id="nEU"></p><div class="th"><i id="thEU"></i></div></div>
+  </div>
+
+  <div class="layer finale" aria-live="polite">
+    <p class="x" id="xBig" lang="ja" aria-label="約3倍"></p>
+    <div class="fin-text">
+      <p class="calc" id="calc"></p>
+      <p class="s-jp" lang="ja">日本海は、北西ヨーロッパの海の約3倍の速さで温まっています。</p>
+      <p class="s-de" lang="de">Das Japanische Meer erwärmt sich etwa dreimal so schnell wie das Vergleichsgebiet vor Nordwesteuropa.</p>
+      <p class="s-note"><span id="noteJP" lang="ja"></span><span id="noteDE" lang="de"></span></p>
+    </div>
+  </div>
+
+  <p class="foot"><span>Daten: JMA 気象庁 (日本海中部, Gebiet N2) und Copernicus Marine (NW European Shelf)</span><span>1 Turm = 1 Jahr, beide Meere auf derselben Skala</span></p>
+</section>
+
+<section class="coda" id="coda" aria-live="polite" aria-label="Fazit">
+  <div class="c-text">
+    <p class="c-kick"><span class="c-idx" id="cIdx"></span><span id="cK1" lang="ja"></span><span id="cK2" lang="de"></span></p>
+    <h2 class="c-jp wipe" id="cJP" lang="ja"></h2>
+    <p class="c-de wipe" id="cDE" lang="de"></p>
+    <div class="c-detail" id="cDet"><p class="c-djp" id="cDJP" lang="ja"></p><p class="c-dde" id="cDDE" lang="de"></p></div>
+    <p class="c-src" id="cSrc"></p>
+  </div>
+  <div class="c-vis" id="cVis"></div>
+  <div class="c-prog" id="cProg" aria-hidden="true"></div>
+  <p class="c-hint" id="cHint" lang="de"></p>
+</section>
+
+<nav class="ctrl" aria-label="Bedienung">
+  <div class="status"><i class="dot" id="dot"></i><span id="stat">Nicht verbunden</span></div>
+  <span class="warn" id="warn"></span>
+  <button class="main" id="bConnect">Objekt verbinden</button>
+  <button id="bDemo">Demo <kbd>D</kbd></button>
+  <button id="bCoda">Fazit <kbd>S</kbd></button>
+  <button id="bTalk">Vortrag <kbd>P</kbd></button>
+  <button id="bBeamer">Beamer <kbd>B</kbd></button>
+  <button id="bSound">Ton aus <kbd>M</kbd></button>
+  <button id="bFull">Vollbild <kbd>F</kbd></button>
+</nav>
+<div class="tip" id="tip"></div>
+<div class="badge" id="badge"></div>
+
+<script>
+"use strict";
+/* KARTEN: build.py ersetzt null durch die Daten aus maps.json.
+   Ohne Karten zeigt das Fazit eine Textgrafik. */
+const MAPS = null;
+
+/* =====================================================================
+   0. Einstellungen per URL
+      ?talk        Vortragsmodus (Fazit nur per Pfeiltaste)
+      ?beamer      mehr Kontrast
+      ?q=low|mid|high   Grafikqualität (Standard: passt sich selbst an)
+      ?obj=down|left|right   wohin der Pfeil zum Objekt zeigt
+      ?reload=6    Seite nach 6 Stunden im Ruhezustand neu laden
+   ===================================================================== */
+const $ = s => document.querySelector(s);
+const P = new URLSearchParams(location.search);
+const OPT = {
+  q: (P.get('q') || 'auto').toLowerCase(),
+  talk: P.has('talk'),
+  beamer: P.has('beamer'),
+  obj: (P.get('obj') || 'down').toLowerCase(),
+  reload: parseFloat(P.get('reload') || '0') || 0,
+};
+const RED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const B = document.body;
+B.classList.add('obj-' + (['left', 'right'].includes(OPT.obj) ? OPT.obj : 'down'));
+
+/* =====================================================================
+   1. Daten – identisch mit dem ESP32-Code
+   ===================================================================== */
+const FIRST = 1982;
+const JP = [-0.70,-0.75,-0.92,-0.71,-1.77,-1.14,-0.59,-0.33,0.14,-0.40,-0.32,-0.89,-0.02,-0.52,-1.09,-0.44,0.51,0.34,0.05,0.38,
+            -0.09,0.10,0.18,-0.06,-0.83,0.01,0.19,-0.10,1.00,-0.15,0.17,0.11,-0.06,-0.47,0.47,0.66,-0.16,0.63,0.83,1.37,1.05,2.03,1.99];
+const EU = [-0.31,-0.44,-0.25,-0.49,-0.75,-0.56,-0.38,-0.02,-0.02,-0.25,-0.33,-0.50,-0.39,-0.02,-0.38,0.03,-0.08,-0.01,-0.07,0.07,
+             0.16,0.29,0.16,0.11,0.28,0.32,0.17,0.12,-0.03,-0.06,-0.09,-0.12,0.37,-0.15,0.11,0.12,-0.03,0.12,0.06,0.09,0.37,0.44,0.29];
+const N = JP.length, KEYS = ['jp', 'eu'], SEAS = { jp: JP, eu: EU };
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v)), clamp01 = v => clamp(v, 0, 1);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const rnd = s => { const x = Math.sin(s * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const de = v => v.toFixed(2).replace('.', ',');
+
+function trend(v){
+  const xs = v.map((_, i) => FIRST + i), n = v.length;
+  const mx = xs.reduce((a, b) => a + b) / n, my = v.reduce((a, b) => a + b) / n;
+  let sxy = 0, sxx = 0;
+  for (let i = 0; i < n; i++){ sxy += (xs[i] - mx) * (v[i] - my); sxx += (xs[i] - mx) ** 2; }
+  const slope = sxy / sxx;
+  return { slope, at: y => my + slope * (y - mx) };
+}
+const TR = { jp: trend(JP), eu: trend(EU) };
+const DEC = { jp: TR.jp.slope * 10, eu: TR.eu.slope * 10 };
+const RATIO = DEC.jp / DEC.eu;
+const hottest = v => v.map((x, i) => [x, i]).sort((a, b) => b[0] - a[0]).slice(0, 3).map(p => p[1]);
+const HOT = { jp: hottest(JP), eu: hottest(EU) };
+function records(v, from){
+  const s = new Set(); let m = -Infinity;
+  v.forEach((x, i) => { if (x > m){ m = x; if (FIRST + i >= from) s.add(i); } });
+  return s;
+}
+const REC = { jp: records(JP, 1990), eu: records(EU, 1990) };
+const towerH = a => 4 + (a + 2) * 10;          // wie beim 3D-Druck, in mm
+const H_MAX = 46;
+
+/* Farben – blau = kälter, grau = normal, rot = wärmer (wie die LEDs) */
+const STOPS = [[61,109,242],[134,190,255],[205,211,218],[255,138,61],[240,38,60]];
+function rgbFor(a){
+  const t = clamp01((a + 2) / 4) * 4, i = Math.min(3, Math.floor(t)), f = t - i;
+  return STOPS[i].map((v, k) => v + (STOPS[i + 1][k] - v) * f);
+}
+const css = c => `rgb(${c.map(Math.round).join(',')})`;
+const fmt = a => (a > 0 ? '+' : a < 0 ? '−' : '±') + Math.abs(a).toFixed(2);
+
+/* Zustand */
+let state = 'idle', shown = -1, G = null, watchdog = null;
+let heat = .2, heatT = .2, beamX = -1e5, beamTarget = -1e5, beamOn = 0;
+let sweepX = -1e5, sweepAt = 3, sweepT0 = -1, sweepCol = -1;
+
+/* =====================================================================
+   2. Geometrie: Horizont = Zeitachse, oben Japan, unten Europa kopfüber
+   ===================================================================== */
+function geom(){
+  const W = innerWidth, H = innerHeight;
+  const narrow = W < 900 || H > W;
+  const padL = narrow ? Math.max(58, W * .11) : clamp(W * .075, 110, 170);
+  const padR = Math.max(16, W * .025);
+  const top = H * (narrow ? .15 : .12);
+  const laneH = Math.max(28, H * .042);
+  const laneY = H * (narrow ? .45 : .47);
+  const laneTop = laneY - laneH / 2, laneBot = laneY + laneH / 2;
+  const unit = (laneTop - top) / (H_MAX + 1);       // gleiche Skala für beide Meere
+  const col = (W - padL - padR) / N;
+  const euEnd = laneBot + Math.max(...EU.map(towerH)) * unit;
+  return { W, H, narrow, padL, padR, top, laneH, laneY, laneTop, laneBot, unit, col, tw: col * .56, euEnd, stripTop: euEnd + H * .03 };
+}
+const cx = i => G.padL + (i + .5) * G.col;
+const tipY = (k, i) => k === 'jp' ? G.laneTop - towerH(SEAS[k][i]) * G.unit : G.laneBot + towerH(SEAS[k][i]) * G.unit;
+function setVars(){
+  const s = document.documentElement.style, px = v => v.toFixed(1) + 'px';
+  s.setProperty('--padL', px(G.padL)); s.setProperty('--padR', px(G.padR)); s.setProperty('--top', px(G.top));
+  s.setProperty('--laneTop', px(G.laneTop)); s.setProperty('--laneBot', px(G.laneBot)); s.setProperty('--euEnd', px(G.euEnd));
+  s.setProperty('--stripTop', px(G.stripTop)); s.setProperty('--stripH', px(G.H - G.stripTop));
+}
+
+/* =====================================================================
+   3. Stadt (SVG)
+   ===================================================================== */
+const NS = 'http://www.w3.org/2000/svg';
+const svg = $('#city');
+const T = { jp: [], eu: [] };
+let RECM = [], beamEl = null, pillEl = null, pillTxt = null, slopeTxt = {};
+function el(tag, attrs, parent){
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  (parent || svg).appendChild(e);
+  return e;
+}
+
+function build(){
+  G = geom(); setVars();
+  svg.setAttribute('viewBox', `0 0 ${G.W} ${G.H}`);
+  svg.innerHTML = '';
+  T.jp = []; T.eu = []; RECM = []; slopeTxt = {};
+
+  const defs = el('defs', {});
+  const pat = el('pattern', { id: 'win', width: 7, height: 9, patternUnits: 'userSpaceOnUse' }, defs);
+  el('rect', { x: 1.4, y: 2.2, width: 1.7, height: 2.6, fill: '#FFD49A' }, pat);
+  el('rect', { x: 4.3, y: 2.2, width: 1.7, height: 2.6, fill: '#FFE7C4', opacity: .5 }, pat);
+
+  // Türme: Silhouette, Fenster, Lichtkante in der Datenfarbe
+  for (const k of KEYS){
+    const g = el('g', { class: 'towers ' + k });
+    SEAS[k].forEach((a, i) => {
+      const h = towerH(a) * G.unit, x = cx(i) - G.tw / 2;
+      const y = k === 'jp' ? G.laneTop - h : G.laneBot;
+      const c = css(rgbFor(a));
+      const t = el('g', { class: 'tw' }, g);
+      t.style.setProperty('--c', c);
+      t.style.setProperty('--i', i);
+      t.style.transformOrigin = k === 'jp' ? '50% 100%' : '50% 0%';
+      el('rect', { class: 'sil', x, y, width: G.tw, height: h }, t);
+      const w = el('rect', { class: 'win', x: x + 1, y: k === 'jp' ? y + 4 : y + 2, width: Math.max(0, G.tw - 2), height: Math.max(0, h - 6), fill: 'url(#win)' }, t);
+      w.style.setProperty('--wo', (.25 + .75 * rnd(i * 7 + (k === 'jp' ? 1 : 2))).toFixed(2));
+      el('rect', { class: 'rim', x: x - 1, y: k === 'jp' ? y - 1 : y + h - 2, width: G.tw + 2, height: 3, fill: c }, t);
+      T[k].push(t);
+    });
+  }
+
+  // Horizont mit Jahreszahlen
+  el('rect', { class: 'lane', x: G.padL - G.col * .3, y: G.laneTop, width: G.W - G.padL - G.padR + G.col * .6, height: G.laneH, rx: G.laneH / 2 });
+  const fs = Math.max(13, G.laneH * .44);
+  for (let i = 0; i < N; i++){
+    const y = FIRST + i;
+    if ([1982, 1990, 2000, 2010, 2020, 2024].includes(y)) el('text', { class: 'axis', x: cx(i), y: G.laneY, 'font-size': fs }).textContent = y;
+    else el('circle', { class: 'kdot', cx: cx(i), cy: G.laneY, r: 1.6 });
+  }
+
+  // Lichtstrahl und Jahres-Marke
+  beamEl = el('line', { class: 'beam', x1: 0, x2: 0, y1: G.top * .55, y2: G.euEnd + G.H * .01 });
+  pillEl = el('g', { class: 'pill' });
+  const pw = fs * 2.7, ph = G.laneH * .78;
+  el('rect', { x: -pw / 2, y: G.laneY - ph / 2, width: pw, height: ph, rx: ph / 2 }, pillEl);
+  pillTxt = el('text', { x: 0, y: G.laneY + 1, 'font-size': fs * 1.08 }, pillEl);
+  pillTxt.textContent = FIRST;
+
+  // Trendlinien mit Steigung (sitzen dort, wo die Türme niedrig sind)
+  const tg = el('g', { class: 'trend' });
+  const big = Math.round(G.H * .046), small = Math.round(Math.max(13, G.H * .018));
+  for (const k of KEYS){
+    const s = k === 'jp' ? -1 : 1, base = k === 'jp' ? G.laneTop : G.laneBot;
+    const yAt = yr => base + s * towerH(TR[k].at(yr)) * G.unit;
+    const x1 = cx(0), x2 = cx(N - 1), y1 = yAt(FIRST), y2 = yAt(FIRST + N - 1);
+    const len = Math.hypot(x2 - x1, y2 - y1) + 2;
+    const d = `M${x1.toFixed(1)},${y1.toFixed(1)}L${x2.toFixed(1)},${y2.toFixed(1)}`;
+    el('path', { class: `tl glow ${k}`, d, style: `--len:${len}` }, tg);
+    el('path', { class: `tl core ${k}`, d, style: `--len:${len}` }, tg);
+    const li = 32.5, lx = G.padL + (li + .5) * G.col, ly = yAt(FIRST + li);
+    const lab = el('g', { class: 'slope ' + k }, tg);
+    el('text', { class: 'ss', x: lx, y: ly - 16 - big * .92, 'text-anchor': 'middle', 'font-size': small }, lab).textContent = '10年で / pro Jahrzehnt';
+    slopeTxt[k] = el('text', { class: 'sn', x: lx, y: ly - 16, 'text-anchor': 'middle', 'font-size': big }, lab);
+    slopeTxt[k].textContent = '+0.00 °C';
+  }
+
+  // Rekord-Marken
+  const rg = el('g', { class: 'recs' });
+  const ts = Math.round(Math.max(12, G.H * .0145));
+  for (const k of KEYS) for (const i of REC[k]){
+    const tip = tipY(k, i), dir = k === 'jp' ? -1 : 1, x = cx(i), y = tip + dir * G.H * .02;
+    const m = el('g', { class: 'rec ' + k }, rg);
+    el('circle', { class: 'ring', cx: x, cy: tip, r: G.tw * .6 }, m);
+    el('path', { class: 'dia', d: `M${x},${y - 5}L${x + 5},${y}L${x},${y + 5}L${x - 5},${y}Z` }, m);
+    el('text', { class: 'tag', x, y: dir < 0 ? y - ts * .9 : y + ts * 1.7, 'font-size': ts }, m).textContent = '記録';
+    RECM.push({ k, i, el: m });
+  }
+
+  // Trefferflächen: ein Jahr = eine Spalte über beide Meere
+  const hg = el('g', {});
+  for (let i = 0; i < N; i++){
+    const r = el('rect', { class: 'hit', x: G.padL + i * G.col, y: G.top, width: G.col, height: G.euEnd - G.top }, hg);
+    r.addEventListener('pointerenter', ev => showTip(i, ev));
+    r.addEventListener('pointermove', moveTip);
+    r.addEventListener('pointerleave', hideTip);
+    r.addEventListener('click', () => pluck(i));
+  }
+  applyTowers();
+}
+
+function applyTowers(){
+  if (!T.jp.length) return;
+  const all = state === 'end' || state === 'coda';
+  for (const k of KEYS) T[k].forEach((t, i) => {
+    t.classList.toggle('on', all || (state === 'play' && i <= shown));
+    t.classList.toggle('cur', state === 'play' && i === shown);
+    t.classList.toggle('hot', state === 'end' && HOT[k].includes(i));
+  });
+  RECM.forEach(m => m.el.classList.toggle('on', all || (state === 'play' && m.i <= shown)));
+  updatePill();
+}
+function updatePill(){
+  if (!pillEl) return;
+  const i = Math.max(0, shown), x = cx(i);
+  pillEl.style.transform = `translateX(${x.toFixed(1)}px)`;
+  beamEl.style.transform = `translateX(${x.toFixed(1)}px)`;
+  pillTxt.textContent = FIRST + i;
+  beamTarget = x;
+}
+
+/* =====================================================================
+   4. Himmel und Wasser (WebGL): Warming Stripes mit Hitzeflimmern
+   ===================================================================== */
+const fieldCv = $('#field');
+const RIPS = 8, rip = new Float32Array(RIPS * 4); let ripI = 0;
+const OCT = OPT.q === 'low' ? 2 : 3;
+let fieldScale = ({ low: .42, mid: .6, high: .82 })[OPT.q] || .6;
+let gl = null, SH = null, c2 = null;
+const T0 = performance.now();
+const clock = () => (performance.now() - T0) / 1000 * (RED_MOTION ? .35 : 1);
+function addRipple(x, y, amp){ rip.set([x, y, clock(), amp], ripI * 4); ripI = (ripI + 1) % RIPS; }
+
+const VS = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+const FS = `
+precision highp float;
+#define RIPS ${RIPS}
+#define OCT ${OCT}
+uniform vec2 uRes; uniform float uScale; uniform float uTime;
+uniform vec4 uGeo;   // padL, Spaltenbreite, Horizont-y, Horizont-Höhe
+uniform vec4 uGeo2;  // top, euEnd, H, W
+uniform vec4 uRip[RIPS];
+uniform vec4 uFx;    // sweepX, beamX, beamOn, heat
+uniform vec4 uFx2;   // Helligkeit, Körnung
+uniform sampler2D uData;
+float hash(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float noise(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3. - 2. * f);
+  return mix(mix(hash(i), hash(i + vec2(1., 0.)), u.x), mix(hash(i + vec2(0., 1.)), hash(i + vec2(1., 1.)), u.x), u.y); }
+float fbm(vec2 p){ float v = 0., a = .5; for (int i = 0; i < OCT; i++){ v += a * noise(p); p = mat2(1.6, 1.2, -1.2, 1.6) * p; a *= .5; } return v; }
+vec4 tx(float ci, float row){ return texture2D(uData, vec2((ci + .5) / 64., row)); }
+void main(){
+  vec2 q = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y) / uScale;
+  float t = uTime, col = uGeo.y, lane = uGeo.z, lh = uGeo.w * .5;
+  bool sky = q.y < lane;
+  float row = sky ? .25 : .75;
+  float d = sky ? (lane - lh - q.y) : (q.y - lane - lh);
+  float n1 = fbm(q * .0034 + vec2(0., sky ? t * .07 : -t * .03));
+  float n2 = fbm(q * vec2(.0022, .0095) + vec2(t * .05, 7.3));
+  float dx;
+  if (sky) dx = (n1 - .5) * col * (.4 + .8 * uFx.w) + sin(q.y * .032 - t * 1.8 + n2 * 5.) * col * .1 * uFx.w * smoothstep(0., 220., d);
+  else dx = (n1 - .5) * col * .32 + sin(q.y * .1 + t * 1.15 + n2 * 6.28) * col * .17 * smoothstep(0., 60., d);
+  float rp = 0.;
+  for (int i = 0; i < RIPS; i++){
+    vec4 r = uRip[i]; float age = t - r.z;
+    if (r.w > 0. && age > 0. && age < 4.){
+      vec2 dv = q - r.xy; float dist = length(dv); float k = dist - age * 300.;
+      float w = sin(k * .05) * exp(-k * k * .00008) * exp(-age * 1.15) * r.w;
+      dx += dv.x / (dist + 1.) * w * 24.; rp += w;
+    }
+  }
+  float u = (q.x + dx - uGeo.x) / col;
+  vec3 c = vec3(.010, .018, .027);
+  if (u > -.5 && u < 43.5){
+    float ci = clamp(floor(u), 0., 42.);
+    float f = fract(u);
+    vec4 a = tx(ci, row);
+    vec4 b = tx(clamp(ci + (f < .5 ? -1. : 1.), 0., 42.), row);
+    vec4 m = mix(a, b, smoothstep(.42, .5, abs(f - .5)) * .5);
+    float edge = smoothstep(-.5, .3, u) * smoothstep(43.5, 42.7, u);
+    float I = m.a * 1.6;
+    float span = sky ? max(1., lane - lh - uGeo2.x) : max(1., uGeo2.z - lane - lh);
+    float fall = mix(1., sky ? .26 : .18, smoothstep(0., span, d));
+    vec3 base = m.rgb;
+    vec3 s = base * I * fall;
+    if (sky) s += base * I * pow(n1, 3.) * .3 * fall;
+    else { s *= .8; s += base * pow(n2, 5.) * .9 * I * fall; }
+    float zs = (q.x - uFx.x) / (col * 2.2);
+    s += base * exp(-zs * zs) * .9 * fall;
+    float zb = (q.x - uFx.y) / (col * .75);
+    s += (base * .4 + vec3(.22)) * exp(-zb * zb) * uFx.z * fall;
+    c += s * edge;
+  }
+  c += vec3(.75, .85, 1.) * .07 * exp(-abs(q.y - lane) * .055);
+  c += vec3(1., .92, .85) * rp * .045;
+  vec2 vv = (gl_FragCoord.xy / uRes - .5) * vec2(1.05, 1.2);
+  c *= mix(.6, 1., smoothstep(.95, .2, length(vv)));
+  c *= uFx2.x;
+  c += (hash(gl_FragCoord.xy + fract(t * 7.) * 97.) - .5) * uFx2.y;
+  gl_FragColor = vec4(c, 1.);
+}`;
+
+function initGL(){
+  SH = null;
+  try {
+    gl = gl || fieldCv.getContext('webgl', { antialias: false, alpha: false, depth: false, stencil: false, premultipliedAlpha: false, powerPreference: 'high-performance' });
+    if (!gl) throw new Error('WebGL nicht verfügbar');
+    const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+    const prog = gl.createProgram();
+    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+    gl.useProgram(prog);
+    const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    const tex = gl.createTexture(); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 64, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, dataTex);
+    const U = n => gl.getUniformLocation(prog, n);
+    SH = { tex, uRes: U('uRes'), uScale: U('uScale'), uTime: U('uTime'), uGeo: U('uGeo'), uGeo2: U('uGeo2'),
+           uRip: U('uRip'), uFx: U('uFx'), uFx2: U('uFx2'), uData: U('uData') };
+    gl.uniform1i(SH.uData, 0);
+    B.classList.remove('glost');
+    resizeField();
+    return true;
+  } catch (e){ console.warn('[Feld]', e); SH = null; return false; }
+}
+function initField(){
+  if (initGL()) return;
+  if (!gl){ c2 = fieldCv.getContext('2d'); resizeField(); }   // Ersatz ohne WebGL
+  else B.classList.add('glost');
+}
+fieldCv.addEventListener('webglcontextlost', e => { e.preventDefault(); SH = null; B.classList.add('glost'); warn('gpu', 'Grafik-Kontext verloren, warte …'); }, false);
+fieldCv.addEventListener('webglcontextrestored', () => { if (initGL()) warn('gpu', null); }, false);
+
+function resizeField(){
+  const W = innerWidth, H = innerHeight;
+  if (SH){
+    fieldCv.width = Math.max(2, Math.round(W * fieldScale)); fieldCv.height = Math.max(2, Math.round(H * fieldScale));
+    gl.viewport(0, 0, fieldCv.width, fieldCv.height);
+  } else if (c2){
+    const d = Math.min(1, devicePixelRatio || 1);
+    fieldCv.width = Math.round(W * d); fieldCv.height = Math.round(H * d); c2.setTransform(d, 0, 0, d, 0, 0);
+  }
+}
+
+/* Leuchtkraft pro Spalte – wird jedes Bild in die Textur geschrieben */
+const INT = { jp: new Float32Array(N), eu: new Float32Array(N) };
+const TGT = { jp: new Float32Array(N), eu: new Float32Array(N) };
+const dataTex = new Uint8Array(64 * 2 * 4);
+KEYS.forEach((k, row) => SEAS[k].forEach((a, i) => {
+  const c = rgbFor(a), o = (row * 64 + i) * 4;
+  dataTex[o] = c[0]; dataTex[o + 1] = c[1]; dataTex[o + 2] = c[2];
+}));
+function setTargets(){
+  for (const k of KEYS) for (let i = 0; i < N; i++){
+    TGT[k][i] = state === 'idle' ? .2
+      : state === 'play' ? (i < shown ? .7 : i === shown ? 1 : 0)
+      : state === 'end' ? (HOT[k].includes(i) ? 1.12 : .86)
+      : .38;
+  }
+}
+function flash(k, i){ INT[k][i] = 1.6; }
+function stepIntensity(dt, t){
+  const e = 1 - Math.exp(-dt * 3);
+  KEYS.forEach((k, row) => {
+    for (let i = 0; i < N; i++){
+      let g = TGT[k][i];
+      if (state === 'idle') g += Math.sin(t * .55 + i * .33 + row) * .05;
+      else if (state === 'end' && HOT[k].includes(i)) g += Math.sin(t * 3.2 + i) * .14;
+      INT[k][i] += (g - INT[k][i]) * e;
+      dataTex[(row * 64 + i) * 4 + 3] = clamp(INT[k][i] / 1.6 * 255, 0, 255);
+    }
+  });
+}
+function renderField(t){
+  if (SH){
+    gl.uniform2f(SH.uRes, fieldCv.width, fieldCv.height);
+    gl.uniform1f(SH.uScale, fieldCv.width / innerWidth);
+    gl.uniform1f(SH.uTime, t);
+    gl.uniform4f(SH.uGeo, G.padL, G.col, G.laneY, G.laneH);
+    gl.uniform4f(SH.uGeo2, G.top, G.euEnd, G.H, G.W);
+    gl.uniform4fv(SH.uRip, rip);
+    gl.uniform4f(SH.uFx, sweepX, beamX, beamOn, heat);
+    gl.uniform4f(SH.uFx2, OPT.beamer ? 1.18 : 1, OPT.beamer ? 0 : .032, 0, 0);
+    gl.bindTexture(gl.TEXTURE_2D, SH.tex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 64, 2, gl.RGBA, gl.UNSIGNED_BYTE, dataTex);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  } else if (c2){
+    const W = innerWidth, H = innerHeight;
+    c2.fillStyle = '#03070b'; c2.fillRect(0, 0, W, H);
+    KEYS.forEach((k, row) => {
+      const y0 = row ? G.laneY : 0, y1 = row ? H : G.laneY;
+      for (let i = 0; i < N; i++){
+        const c = rgbFor(SEAS[k][i]), I = INT[k][i] * (row ? .75 : 1);
+        c2.fillStyle = `rgb(${c.map(v => Math.min(255, Math.round(v * I))).join(',')})`;
+        c2.fillRect(G.padL + i * G.col, y0, G.col + .6, y1 - y0);
+      }
+    });
+    const g = c2.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, 'rgba(3,7,11,.75)'); g.addColorStop(G.laneY / H, 'rgba(3,7,11,0)'); g.addColorStop(1, 'rgba(3,7,11,.85)');
+    c2.fillStyle = g; c2.fillRect(0, 0, W, H);
+  }
+}
+
+/* Ruhe: alle 12 s fährt ein Lichtband über die Stadt */
+function updateSweep(t){
+  if (state !== 'idle' || RED_MOTION){ sweepX = -1e5; sweepT0 = -1; return; }
+  if (sweepT0 < 0){ if (t < sweepAt) return; sweepT0 = t; sweepCol = -1; }
+  const f = (t - sweepT0) / 3.6;
+  if (f >= 1){ sweepT0 = -1; sweepAt = t + 12; sweepX = -1e5; return; }
+  const e = f * f * (3 - 2 * f);
+  sweepX = G.padL - G.col * 4 + (G.W - G.padL - G.padR + G.col * 8) * e;
+  const c = Math.floor((sweepX - G.padL) / G.col);
+  if (c !== sweepCol && c >= 0 && c < N){
+    sweepCol = c;
+    for (const k of KEYS) if (SEAS[k][c] > 0) spawn(k, c, 2 + Math.round(SEAS[k][c] * 4), true);
+  }
+}
+
+/* =====================================================================
+   5. Glut: Funken steigen aus warmen Türmen (Europa: sinken ins Wasser)
+   ===================================================================== */
+const embCv = $('#embers'), ectx = embCv.getContext('2d');
+const PS = []; let MAXP = OPT.q === 'low' ? 260 : 650;
+function resizeEmbers(){
+  const d = Math.min(1.5, devicePixelRatio || 1);
+  embCv.width = Math.round(innerWidth * d); embCv.height = Math.round(innerHeight * d);
+  ectx.setTransform(d, 0, 0, d, 0, 0);
+}
+function spawn(k, i, n, burst){
+  if (!G) return;
+  const a = SEAS[k][i], dir = k === 'jp' ? -1 : 1, c = rgbFor(Math.min(2, a + .6));
+  const col = `${c[0] | 0},${c[1] | 0},${c[2] | 0}`, x0 = cx(i), y0 = tipY(k, i);
+  for (let j = 0; j < n && PS.length < MAXP; j++){
+    PS.push({ x: x0 + (Math.random() - .5) * G.tw, y: y0,
+      vx: (Math.random() - .5) * (burst ? 70 : 16),
+      vy: dir * (burst ? 50 + Math.random() * 130 : 16 + Math.random() * 38 + Math.max(0, a) * 14),
+      age: 0, life: 1.4 + Math.random() * 2.8, r: .7 + Math.random() * 1.5 + Math.max(0, a) * .35, col, ph: Math.random() * 6.283 });
+  }
+}
+function stepEmbers(dt, t){
+  const sc = state === 'idle' ? .045 : state === 'coda' ? .12 : state === 'end' ? 1.25 : 1;
+  for (const k of KEYS){
+    const v = SEAS[k];
+    for (let i = 0; i < N; i++){
+      if (state === 'play' && i > shown) continue;
+      const a = v[i]; if (a <= .05) continue;
+      let r = 8 * a * a * sc * dt;
+      while (r > 0){ if (Math.random() < r) spawn(k, i, 1, false); r -= 1; }
+    }
+  }
+  ectx.clearRect(0, 0, innerWidth, innerHeight);
+  ectx.globalCompositeOperation = 'lighter';
+  for (let j = PS.length - 1; j >= 0; j--){
+    const p = PS[j]; p.age += dt;
+    if (p.age > p.life || p.y < -20 || p.y > innerHeight + 20){ PS[j] = PS[PS.length - 1]; PS.pop(); continue; }
+    p.vy *= 1 - .35 * dt; p.vx += Math.sin(t * 1.7 + p.ph) * 18 * dt;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    const f = p.age / p.life;
+    ectx.fillStyle = `rgba(${p.col},${(Math.sin(Math.PI * f) * .85).toFixed(3)})`;
+    ectx.beginPath(); ectx.arc(p.x, p.y, p.r * (1 - f * .4), 0, 6.283); ectx.fill();
+  }
+  ectx.globalCompositeOperation = 'source-over';
+}
+
+/* =====================================================================
+   6. Klang – gleiche Tonleiter wie am Objekt; ab +1 °C wird es unruhig
+   ===================================================================== */
+const NOTES = [220, 262, 294, 330, 392, 440, 523, 587, 659, 784, 880];
+const freqFor = a => NOTES[Math.round(clamp01((a + 2) / 4) * 10)];
+const A = { ctx: null, master: null, muted: false };
+function audio(){
+  if (!A.ctx){
+    const C = window.AudioContext || window.webkitAudioContext; if (!C) return null;
+    const ac = A.ctx = new C();
+    const comp = ac.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 4; comp.connect(ac.destination);
+    A.master = ac.createGain(); A.master.gain.value = A.muted ? 0 : .9; A.master.connect(comp);
+    // kleiner Hall
+    const dl = ac.createDelay(1), fb = ac.createGain(), lp = ac.createBiquadFilter(), wet = ac.createGain();
+    dl.delayTime.value = .23; fb.gain.value = .28; lp.type = 'lowpass'; lp.frequency.value = 2400; wet.gain.value = .22;
+    dl.connect(lp); lp.connect(fb); fb.connect(dl); lp.connect(wet); wet.connect(A.master);
+    A.send = dl;
+    // Meeresrauschen
+    const len = ac.sampleRate * 4, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < len; i++){ const w = Math.random() * 2 - 1; last = (last + .02 * w) / 1.02; d[i] = last * 3.2; }
+    A.noise = buf;
+    const src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
+    A.seaF = ac.createBiquadFilter(); A.seaF.type = 'lowpass'; A.seaF.frequency.value = 420;
+    A.seaG = ac.createGain(); A.seaG.gain.value = 0;
+    const lfo = ac.createOscillator(); A.lfoD = ac.createGain(); lfo.frequency.value = .12; A.lfoD.gain.value = 0;
+    lfo.connect(A.lfoD); A.lfoD.connect(A.seaG.gain); lfo.start();
+    src.connect(A.seaF); A.seaF.connect(A.seaG); A.seaG.connect(A.master); src.start();
+    // tiefer Dauerton, wächst mit der Hitze
+    A.dF = ac.createBiquadFilter(); A.dF.type = 'lowpass'; A.dF.frequency.value = 140; A.dF.Q.value = 4;
+    A.dG = ac.createGain(); A.dG.gain.value = 0;
+    [[55, 'sawtooth', .35], [82.41, 'triangle', .5], [55.4, 'sawtooth', .3]].forEach(([f, type, v]) => {
+      const o = ac.createOscillator(), g = ac.createGain(); o.type = type; o.frequency.value = f; g.gain.value = v;
+      o.connect(g); g.connect(A.dF); o.start();
+    });
+    A.dF.connect(A.dG); A.dG.connect(A.master);
+  }
+  if (A.ctx.state === 'suspended') A.ctx.resume().catch(() => {});
+  return A.ctx;
+}
+function live(){
+  if (!A.ctx) return null;
+  if (A.ctx.state !== 'running'){ warn('audio', 'Ton blockiert: einmal klicken'); return null; }
+  warn('audio', null); return A.ctx;
+}
+function setSea(level, cutoff){
+  if (!A.ctx) return; const t = A.ctx.currentTime;
+  A.seaG.gain.setTargetAtTime(level, t, .9); A.lfoD.gain.setTargetAtTime(level * .35, t, .9);
+  if (cutoff) A.seaF.frequency.setTargetAtTime(cutoff, t, .7);
+}
+function setDrone(level, cutoff){
+  if (!A.ctx) return; const t = A.ctx.currentTime;
+  A.dG.gain.setTargetAtTime(level * .16, t, 1.2);
+  if (cutoff) A.dF.frequency.setTargetAtTime(cutoff, t, 1);
+}
+function hush(){
+  if (!A.ctx) return; const t = A.ctx.currentTime;
+  A.dG.gain.setTargetAtTime(0, t, .12); A.seaG.gain.setTargetAtTime(0, t, .12); A.lfoD.gain.setTargetAtTime(0, t, .12);
+}
+function voice(f, delay, kind, hot = 0){
+  const ac = live(); if (!ac) return;
+  const t = ac.currentTime + delay, jp = kind === 'jp', dur = jp ? 1.3 : .8;
+  const g = ac.createGain();
+  g.gain.setValueAtTime(.0001, t);
+  g.gain.exponentialRampToValueAtTime(jp ? .28 : .2, t + .012);
+  g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  let out = g;
+  if (ac.createStereoPanner){ const p = ac.createStereoPanner(); p.pan.value = jp ? -.35 : .35; g.connect(p); out = p; }
+  out.connect(A.master); out.connect(A.send);
+  const osc = (type, freq, gain) => {
+    const o = ac.createOscillator(), og = ac.createGain(); o.type = type; o.frequency.value = freq; og.gain.value = gain;
+    o.connect(og); og.connect(g); o.start(t); o.stop(t + dur + .05);
+  };
+  osc(jp ? 'sine' : 'triangle', f, 1);
+  if (jp) osc('sine', f * 2.76, .16);
+  if (hot > 0){
+    osc('sine', f * 1.0094, .5 * hot);                     // Schwebung
+    osc(jp ? 'sawtooth' : 'sine', f * 16 / 15, .1 * hot);   // kleine Sekunde
+  }
+}
+function chime(){
+  const ac = live(); if (!ac) return; const t = ac.currentTime + .05;
+  [[1760, .12, 1.6], [2637, .06, 1.3], [3520, .03, 1]].forEach(([f, v, d]) => {
+    const o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; o.frequency.value = f;
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(v, t + .008); g.gain.exponentialRampToValueAtTime(.0001, t + d);
+    o.connect(g); g.connect(A.master); g.connect(A.send); o.start(t); o.stop(t + d + .1);
+  });
+}
+function whoosh(){
+  const ac = live(); if (!ac) return; const t = ac.currentTime;
+  const s = ac.createBufferSource(); s.buffer = A.noise;
+  const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.2;
+  bp.frequency.setValueAtTime(250, t); bp.frequency.exponentialRampToValueAtTime(1800, t + .45); bp.frequency.exponentialRampToValueAtTime(300, t + 1.1);
+  const g = ac.createGain(); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.3, t + .3); g.gain.exponentialRampToValueAtTime(.0001, t + 1.15);
+  s.connect(bp); bp.connect(g); g.connect(A.master); s.start(t, Math.random() * 2); s.stop(t + 1.2);
+}
+function boom(){
+  const ac = live(); if (!ac) return; const t = ac.currentTime;
+  const o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine';
+  o.frequency.setValueAtTime(78, t); o.frequency.exponentialRampToValueAtTime(34, t + 1.8);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.7, t + .03); g.gain.exponentialRampToValueAtTime(.0001, t + 2.4);
+  o.connect(g); g.connect(A.master); o.start(t); o.stop(t + 2.5);
+  voice(220, .05, 'jp'); voice(110, .05, 'jp');
+}
+function chordDown(){
+  const top = Math.max(...HOT.jp.map(i => JP[i])), base = NOTES.indexOf(freqFor(top));
+  [0, .22, .44, .66].forEach((d, n) => voice(NOTES[Math.max(0, base - 2 * n)], d, 'jp'));
+}
+function setMuted(m){ A.muted = m; if (A.master) A.master.gain.setTargetAtTime(m ? 0 : .9, A.ctx.currentTime, .05); updateButtons(); }
+
+/* =====================================================================
+   7. Ablaufsteuerung (pausierbar) für Finale und Fazit
+   ===================================================================== */
+const Seq = {
+  t: 0, last: performance.now(), on: false, paused: false, q: [], gen: 0,
+  start(){ this.t = 0; this.q = []; this.on = true; this.paused = false; this.gen++; },
+  stop(){ this.on = false; this.q = []; this.paused = false; this.gen++; },
+  at(s, fn){ this.q.push({ s, fn, done: false }); },
+  tick(now){
+    const dt = Math.min(.25, (now - this.last) / 1000); this.last = now;
+    if (!this.on || this.paused) return;
+    this.t += dt;
+    const gen = this.gen;
+    for (const e of this.q){ if (this.gen !== gen) break; if (!e.done && e.s <= this.t){ e.done = true; e.fn(); } }
+  },
+};
+
+/* =====================================================================
+   8. Anzeige: Jahreszähler, Werte, Jahrzehnte, Rekorde
+   ===================================================================== */
+const yrEl = $('#yr');
+yrEl.innerHTML = Array.from({ length: 4 }, () =>
+  '<span class="dg"><span class="roll">' + '0123456789'.split('').map(d => `<b>${d}</b>`).join('') + '</span></span>').join('');
+const rolls = [...yrEl.querySelectorAll('.roll')];
+function setYear(y){ String(y).split('').forEach((d, k) => { rolls[k].style.transform = `translateY(${-d}em)`; }); }
+const nJP = $('#nJP'), nEU = $('#nEU'), thJP = $('#thJP'), thEU = $('#thEU');
+function setNum(el, th, a){
+  if (a == null){ el.innerHTML = '<span class="empty">—</span>'; el.style.color = ''; th.style.left = '50%'; return; }
+  el.innerHTML = fmt(a) + '<small>°C</small>'; el.style.color = css(rgbFor(a));
+  th.style.left = (clamp01((a + 2) / 4) * 100).toFixed(1) + '%';
+  el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');
+}
+function setBoard(y, jp, eu){ setYear(y || FIRST); setNum(nJP, thJP, jp == null ? null : jp); setNum(nEU, thEU, eu == null ? null : eu); }
+
+const decEl = $('#decade');
+function decade(i){
+  const y = FIRST + i;
+  decEl.querySelector('b').textContent = y + 's';
+  decEl.querySelector('span').textContent = `${y}年代 / die ${y}er`;
+  const near = [i - 1, i, i + 1].filter(j => j >= 0 && j < N).map(j => tipY('jp', j));
+  decEl.style.left = clamp(cx(i), 120, G.W - 120) + 'px';
+  decEl.style.top = Math.max(G.top + G.H * .14, Math.min(...near) - G.H * .03) + 'px';
+  decEl.classList.remove('go'); void decEl.offsetWidth; decEl.classList.add('go');
+  whoosh();
+}
+function record(k, i, loud){
+  const m = RECM.find(r => r.k === k && r.i === i); if (!m) return;
+  m.el.classList.remove('burst'); m.el.getBoundingClientRect(); m.el.classList.add('burst');
+  if (loud) chime();
+  spawn(k, i, 30, true);
+}
+function countSlopes(){
+  for (const k of KEYS){
+    const to = DEC[k], txt = slopeTxt[k], dur = 1500;
+    setTimeout(() => {
+      const t0 = performance.now();
+      (function step(now){
+        const f = clamp01((now - t0) / dur), e = 1 - Math.pow(1 - f, 3);
+        txt.textContent = '+' + (to * e).toFixed(2) + ' °C';
+        if (f < 1) requestAnimationFrame(step);
+      })(t0);
+    }, k === 'jp' ? 1100 : 1550);
+  }
+}
+$('#xBig').innerHTML = [...'約3倍'].map((c, k) => `<span class="ch" style="--k:${k}">${c}</span>`).join('');
+$('#calc').innerHTML = `<span class="j">日本海 <b>+${DEC.jp.toFixed(2)}</b></span><i>÷</i><span class="e">北海 <b>+${DEC.eu.toFixed(2)}</b></span><i>=</i><b class="r">×${RATIO.toFixed(1)}</b><small>°C / 10年</small>`;
+$('#noteJP').textContent = `長期傾向（1982〜2024年、10年あたり）：日本海中部 +${DEC.jp.toFixed(2)}℃、北西ヨーロッパの大陸棚 +${DEC.eu.toFixed(2)}℃`;
+$('#noteDE').textContent = `Trend 1982–2024 pro Jahrzehnt: Japanisches Meer (Mitte) +${de(DEC.jp)} °C, NW-europäischer Schelf +${de(DEC.eu)} °C`;
+
+/* Fakten in der Ruhe – alle geprüft gegen die Daten oben */
+const FACTS = [
+  ['塔ひとつが1年。長いほど、その年の海は暖かかった。', 'Jeder Turm ist ein Jahr. Je länger der Turm, desto wärmer war das Meer.'],
+  ['1982年以降、日本海は約2℃、北西ヨーロッパの海は約0.7℃上昇しました（長期傾向）。', 'Seit 1982: Japanisches Meer etwa +2 °C, Nordsee und NW-Europa etwa +0,7 °C (Trend).'],
+  ['2023年と2024年は、このデータの中で日本海が最も暖かかった2年です。', '2023 und 2024 waren die zwei wärmsten Jahre der Messreihe im Japanischen Meer.'],
+  ['2019年以降、どちらの海も毎年、平年より暖かくなっています。', 'Seit 2019 war jedes Jahr in beiden Meeren wärmer als normal.'],
+  ['1986年は、どちらの海でも最も冷たい年でした。', '1986 war in beiden Meeren das kälteste Jahr der Messreihe.'],
+];
+const factsEl = $('#facts'); let factI = 0;
+function nextFact(){
+  factsEl.classList.add('out');
+  setTimeout(() => {
+    const [j, d] = FACTS[factI++ % FACTS.length];
+    factsEl.children[0].textContent = j; factsEl.children[1].textContent = d;
+    factsEl.classList.remove('out');
+  }, 900);
+}
+
+/* =====================================================================
+   9. Ablauf: Ruhe → Durchlauf → Finale → Fazit → Ruhe
+   ===================================================================== */
+function setState(s){
+  state = s;
+  B.classList.remove('s-idle', 's-play', 's-end', 's-coda', 'reveal', 'lines');
+  B.classList.add('s-' + s);
+  setTargets(); applyTowers();
+}
+
+function startPlay(fromDemo){
+  if (!fromDemo) cancelDemo();
+  stopCoda(); Seq.stop(); clearTimeout(watchdog); hideTip();
+  for (const k of KEYS) T[k].forEach((t, i) => t.style.setProperty('--cd', ((N - 1 - i) * 7) + 'ms'));
+  shown = -1; setState('play');
+  setBoard(null); heatT = 0;
+  audio(); setSea(.05, 420); setDrone(0);
+  badge('');
+}
+
+const mism = new Set();
+function checkMismatch(y, i, jp, eu){
+  if (Math.abs(jp - JP[i]) > .006 || Math.abs(eu - EU[i]) > .006){
+    mism.add(y);
+    console.warn(`[Daten] ${y}: ESP32 JP ${jp} EU ${eu} / Bildschirm JP ${JP[i]} EU ${EU[i]}`);
+    warn('data', `Daten ESP32 ≠ Bildschirm: ${[...mism].slice(-3).join(', ')}`);
+  }
+}
+
+function showYear(y, jp, eu, fromDemo){
+  const i = y - FIRST; if (i < 0 || i >= N || !G) return;
+  if (!fromDemo){ cancelDemo(); checkMismatch(y, i, jp, eu); }
+  if (state !== 'play' || i < shown || (i === 0 && shown > 0)) startPlay(fromDemo);
+  const prev = shown; shown = i;
+  setTargets(); applyTowers();
+  for (let j = Math.max(0, prev + 1); j <= i; j++){ flash('jp', j); flash('eu', j); }  // auch verlorene Zeilen
+  setBoard(y, jp, eu);
+  heatT = clamp01(Math.max(0, jp) / 2);
+
+  addRipple(cx(i), G.laneTop, .9 + .4 * Math.max(0, jp));
+  addRipple(cx(i), G.laneBot, .7 + .4 * Math.max(0, eu));
+  spawn('jp', i, 6 + Math.round(Math.max(0, jp) * 22), true);
+  if (eu > 0) spawn('eu', i, 4 + Math.round(eu * 20), true);
+
+  voice(freqFor(jp), 0, 'jp', clamp01(jp - 1));
+  voice(freqFor(eu), .17, 'eu', clamp01(eu - 1));
+  setSea(.045 + .025 * Math.max(0, jp), 420 + 420 * Math.max(0, jp));
+  setDrone(clamp01((jp + .3) / 2.3) * .5, 140 + 600 * clamp01(jp / 2));
+
+  if (i > 0 && y % 10 === 0) decade(i);
+  if (REC.jp.has(i)) record('jp', i, true);
+  if (REC.eu.has(i)) record('eu', i, false);
+
+  clearTimeout(watchdog);
+  watchdog = setTimeout(i === N - 1 ? finale : goIdle, i === N - 1 ? 1100 : 6500);
+}
+
+function finale(){
+  clearTimeout(watchdog);
+  setState('end');
+  Seq.start();
+  setDrone(.55, 900); setSea(.03, 900);
+  Seq.at(.1, () => { B.classList.add('lines'); countSlopes(); chordDown(); });       // 1. Beweis: zwei Linien
+  Seq.at(1.3, () => HOT.jp.forEach((i, n) => setTimeout(() => { addRipple(cx(i), G.laneTop, 1.1); spawn('jp', i, 36, true); }, n * 240)));
+  Seq.at(4.7, hush);                                                                  // 2. Stille
+  Seq.at(5.3, () => { B.classList.add('reveal'); boom(); });                          // 3. der Satz
+  Seq.at(7.2, () => setDrone(.22, 260));
+  Seq.at(17, () => OPT.talk ? badge('Pfeil rechts: Fazit', 5000) : startCoda());
+}
+
+function goIdle(){
+  cancelDemo(); stopCoda(); Seq.stop(); clearTimeout(watchdog);
+  shown = -1; setState('idle'); setBoard(null);
+  setSea(0, 420); setDrone(0); heatT = .2;
+  sweepT0 = -1; sweepAt = clock() + 3.5;
+  badge('');
+}
+
+/* =====================================================================
+   10. Fazit: fünf kurze Szenen, Dauer richtet sich nach der Textmenge
+   ===================================================================== */
+const CODA = [
+  { k: ['なぜ速い？', 'Warum so schnell?'],
+    jp: '日本海はほぼ閉じた海。そこへ対馬暖流が、暖かい水を運び込む。',
+    de: 'Ein fast geschlossenes Becken – und der Tsushima-Strom pumpt ständig warmes Wasser hinein.',
+    dJP: '比べたヨーロッパの海域は広く、大西洋に大きく開いている。浅い北海南部だけなら、世界平均の約2倍の速さで温まる。',
+    dDE: 'Das europäische Vergleichsgebiet ist groß und weit offen zum Atlantik. Nur die flache südliche Nordsee erwärmt sich etwa doppelt so schnell wie der Weltozean.',
+    src: 'Quellen: JMA 気象庁 (日本海の海況); Wu et al. (2012), Nature Climate Change; Thünen-Institut; Copernicus Marine',
+    vis: visWhy },
+  { k: ['魚が北へ', 'Folgen in Japan'],
+    jp: '日本の魚が、北へ移っていく。',
+    de: 'In Japan wandern die Fische nach Norden.',
+    dJP: 'ブリは北海道で1万トン超（2013・2015年）。サンマ・スルメイカ・サケの漁獲は2014年から2022年で約4分の1に。',
+    dDE: 'Gelbschwanz vor Hokkaido: über 10.000 t (2013, 2015). Sanma, Kalmar und Lachs: Fang 2014 bis 2022 auf etwa ein Viertel gesunken.',
+    src: 'Quellen: MAFF 農林水産省, aff 2024年11月号; 北海道立総合研究機構 (HRO)',
+    vis: visJpFish },
+  { k: ['去る魚、来る魚', 'Folgen in der Nordsee'],
+    jp: '北海でも、去る魚と来る魚がいる。',
+    de: 'Auch in der Nordsee: Die einen gehen, die anderen kommen.',
+    dJP: 'タラは北海南部から減り、サバの産卵場は数百キロ北へ。イワシなど南の魚が広がる。',
+    dDE: 'Der Kabeljau verschwindet aus der südlichen Nordsee, die Makrele laicht Hunderte Kilometer weiter nördlich, Sardinen breiten sich aus.',
+    src: 'Quelle: Thünen-Institut, „Klimawandel: Die einen kommen, die anderen gehen“',
+    vis: visEuFish },
+  { k: ['海の熱波', 'Hitzewellen im Meer'],
+    jp: '2024年、日本近海は平年より1.44℃高かった。',
+    de: '2024 war das Meer um Japan 1,44 °C wärmer als normal.',
+    dJP: '1908年以降で最も高い。極端な高水温は温暖化で少なくとも2倍、南日本では10倍以上起こりやすくなった。',
+    dDE: 'So warm wie nie seit 1908. Extreme Meereshitze ist durch die Erwärmung mindestens doppelt so wahrscheinlich, im Süden Japans oft mehr als zehnmal.',
+    src: 'Quellen: JMA 気象庁 (2025), 2024年の日本近海の年平均海面水温; NIES 国立環境研究所, Geophysical Research Letters',
+    vis: visHeat },
+  { k: ['熱のゆくえ', 'Wohin die Wärme geht'],
+    jp: '温暖化で地球にたまった熱の91%を、海が吸収している。',
+    de: '91 % der zusätzlichen Wärme, die der Klimawandel auf der Erde staut, steckt im Meer.',
+    dJP: 'ボタンを押して、もう一度見てみよう。',
+    dDE: 'Drück den Knopf und sieh es dir noch einmal an.',
+    src: 'Quelle: IPCC AR6, Arbeitsgruppe I (2021), Summary for Policymakers',
+    vis: visOcean, cta: true },
+];
+const coda = { on: false, i: 0, dur: 10 };
+const cEl = $('#coda'), cIdx = $('#cIdx'), cK1 = $('#cK1'), cK2 = $('#cK2'), cJP = $('#cJP'), cDE = $('#cDE');
+const cDet = $('#cDet'), cDJP = $('#cDJP'), cDDE = $('#cDDE'), cSrc = $('#cSrc'), cVis = $('#cVis'), cProg = $('#cProg'), cHint = $('#cHint');
+cProg.innerHTML = CODA.map(() => '<span><i></i></span>').join('');
+
+function sceneDur(S){
+  const words = (S.de + ' ' + S.dDE).split(/\s+/).length, chars = (S.jp + S.dJP).length;
+  return clamp(2.6 + Math.max(words / 2.5, chars / 7) + 1.2, 9, 20);   // Lesezeit nach Textmenge
+}
+function startCoda(){
+  cancelDemo(); clearTimeout(watchdog); hideTip();
+  setState('coda'); coda.on = true;
+  setDrone(.15, 240); setSea(.02, 500);
+  showScene(0);
+}
+function stopCoda(){ coda.on = false; clearMovers(); badge(''); }
+function nextScene(){ coda.i + 1 < CODA.length ? showScene(coda.i + 1) : goIdle(); }
+function showScene(i){
+  i = clamp(i, 0, CODA.length - 1); coda.i = i;
+  const S = CODA[i];
+  clearMovers(); Seq.start(); badge('');
+  coda.dur = sceneDur(S);
+  const at = (s, fn) => Seq.at(RED_MOTION ? 0 : s, fn);
+  cIdx.textContent = `${i + 1}/${CODA.length}`;
+  cK1.textContent = S.k[0]; cK2.textContent = S.k[1];
+  cJP.textContent = S.jp; cDE.textContent = S.de;
+  cDJP.textContent = S.dJP; cDDE.textContent = S.dDE; cSrc.textContent = S.src;
+  cJP.classList.remove('in'); cDE.classList.remove('in'); cDet.classList.remove('in');
+  cDet.classList.toggle('cta', !!S.cta);
+  cVis.className = 'c-vis'; cVis.innerHTML = '';
+  void cEl.offsetWidth;
+  at(.15, () => cJP.classList.add('in'));
+  at(.55, () => cDE.classList.add('in'));
+  at(.8, () => cVis.classList.add('in'));
+  at(1.6, () => cDet.classList.add('in'));
+  sceneT0 = performance.now();
+  S.vis(cVis, at);
+  [...cProg.children].forEach((sp, k) => { sp.className = k < i ? 'done' : ''; sp.firstChild.style.width = k < i ? '100%' : '0'; });
+  if (!OPT.talk) Seq.at(coda.dur, nextScene);
+  cHint.textContent = OPT.talk ? 'Pfeiltasten: weiter und zurück, Esc: beenden' : 'Leertaste: Pause, Klick: weiter';
+}
+cEl.addEventListener('click', () => { if (state === 'coda') nextScene(); });
+
+/* Karten-Bausteine */
+const FISH = 'M12,0 C8,-6 -4,-7 -9,0 C-4,7 8,6 12,0 Z M-9,0 L-16,-6 L-14,0 L-16,6 Z';
+let movers = [], sceneT0 = 0;
+function clearMovers(){ movers = []; }
+function sv(tag, attrs, parent){
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function mapSvg(key){
+  const m = MAPS[key];
+  const s = sv('svg', { viewBox: `0 0 ${m.W} ${m.H}`, class: 'map', role: 'img' });
+  sv('path', { d: m.land, class: 'land' }, s);
+  const Pj = (lon, lat) => [(lon - m.proj[0]) * m.proj[2], (m.proj[1] - lat) * m.proj[3]];
+  return { s, m, P: Pj };
+}
+function figure(node, jp, deTxt, cls){
+  const f = document.createElement('figure'); if (cls) f.className = cls;
+  const c = document.createElement('figcaption'); c.setAttribute('lang', 'ja'); c.textContent = jp;
+  const s = document.createElement('span'); s.setAttribute('lang', 'de'); s.textContent = deTxt; c.appendChild(s);
+  f.append(c, node); return f;
+}
+const pts = a => a.map(p => p.join(',')).join(' ');
+function flow(parent, points, cls){ return sv('polyline', { points: pts(points), class: 'flow ' + cls }, parent); }
+function mlabel(parent, [x, y], jp, deTxt, anchor = 'start'){
+  const g = sv('g', { class: 'mlbl' }, parent);
+  sv('text', { x, y, 'text-anchor': anchor, class: 'mj' }, g).textContent = jp;
+  if (deTxt) sv('text', { x, y: y + 18, 'text-anchor': anchor, class: 'md' }, g).textContent = deTxt;
+  return g;
+}
+function fishAlong(parent, points, color, dur, delay, scale = 1){
+  const g = sv('g', { class: 'fish', opacity: 0 }, parent);
+  sv('path', { d: FISH, fill: color, transform: `scale(${scale})` }, g);
+  const L = [0];
+  for (let i = 1; i < points.length; i++) L.push(L[i - 1] + Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]));
+  movers.push({ g, points, L, total: L[L.length - 1], dur, delay });
+}
+function moveFish(now){
+  for (const mv of movers){
+    let f = ((now - sceneT0) / 1000 - mv.delay) / mv.dur;
+    if (f < 0){ mv.g.setAttribute('opacity', 0); continue; }
+    f = RED_MOTION ? .7 : f % 1;
+    const d = f * mv.total; let i = 1;
+    while (i < mv.L.length - 1 && mv.L[i] < d) i++;
+    const a = mv.points[i - 1], b = mv.points[i], s = (d - mv.L[i - 1]) / ((mv.L[i] - mv.L[i - 1]) || 1);
+    const x = a[0] + (b[0] - a[0]) * s, y = a[1] + (b[1] - a[1]) * s;
+    const ang = Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
+    mv.g.setAttribute('transform', `translate(${x.toFixed(1)},${y.toFixed(1)}) rotate(${ang.toFixed(1)})`);
+    mv.g.setAttribute('opacity', RED_MOTION ? 1 : Math.min(1, f * 8, (1 - f) * 8).toFixed(2));
+  }
+}
+function visFallback(box, at, items){
+  const d = document.createElement('div'); d.className = 'bigwords';
+  items.forEach(([j, w], n) => {
+    const p = document.createElement('p'); p.className = 'later';
+    const a = document.createElement('span'); a.lang = 'ja'; a.textContent = j;
+    const b = document.createElement('small'); b.lang = 'de'; b.textContent = w;
+    p.append(a, b); d.appendChild(p);
+    at(.9 + n * 1.1, () => p.classList.add('in'));
+  });
+  box.appendChild(d);
+}
+function visWhy(box, at){
+  if (!MAPS) return visFallback(box, at, [['ほぼ閉じた海', 'ein fast geschlossenes Becken'], ['対馬暖流', 'warmer Tsushima-Strom'], ['大西洋に開いた海', 'Europa: offen zum Atlantik']]);
+  box.classList.add('two');
+  const J = mapSvg('jp'), jm = J.m;
+  mlabel(J.s, jm.points.measure, '日本海中部', 'Messgebiet', 'middle');
+  const strait = sv('g', { class: 'later' }, J.s);
+  for (const k of ['tsushimaStrait', 'tsugaru']){ const [x, y] = jm.points[k]; sv('circle', { cx: x, cy: y, r: 17, class: 'ring' }, strait); }
+  mlabel(strait, J.P(124.6, 32.4), '狭い海峡', 'enge Meerengen');
+  const warmG = sv('g', { class: 'later' }, J.s);
+  flow(warmG, jm.lines.kuroshio, 'warm'); flow(warmG, jm.lines.tsushima, 'warm thick'); flow(warmG, jm.lines.soya, 'warm');
+  mlabel(warmG, J.P(141.2, 32.9), '黒潮', 'Kuroshio');
+  mlabel(warmG, J.P(130.6, 37.6), '対馬暖流', 'Tsushima-Strom');
+  const E = mapSvg('eu'), em = E.m;
+  const [x0, y0, x1, y1] = em.rects.copernicus;
+  sv('rect', { x: x0, y: y0, width: x1 - x0, height: y1 - y0, class: 'area' }, E.s);
+  mlabel(E.s, [x0 + 8, y1 + 26], '48–62°N, 18°W–13°E', 'Copernicus');
+  flow(E.s, em.lines.atlantic, 'cool'); flow(E.s, em.lines.channel, 'cool');
+  mlabel(E.s, E.P(-21.5, 59.4), '大西洋', 'Atlantik');
+  const euFig = figure(E.s, 'ヨーロッパ', 'Vergleichsgebiet', 'dim');
+  box.append(figure(J.s, '日本海', 'Japanisches Meer'), euFig);
+  at(.9, () => strait.classList.add('in'));
+  at(2.2, () => warmG.classList.add('in'));
+  at(4.6, () => euFig.classList.add('in'));
+}
+function visFish(box, at){
+  if (!MAPS) return visFallback(box, at, [['ブリ → 北海道', 'Gelbschwanz zieht bis Hokkaido'], ['サバ → 北へ', 'Makrele laicht weiter nördlich']]);
+  box.classList.add('two');
+  const J = mapSvg('jp'), jm = J.m;
+  flow(J.s, jm.lines.tsushima, 'warm faint');
+  const buri = sv('g', {}, J.s);
+  for (let i = 0; i < 6; i++) fishAlong(buri, jm.lines.buri, '#FFB35C', 6.5, 1 + i, 1.15);
+  mlabel(J.s, J.P(142.0, 45.0), 'ブリ', 'Gelbschwanz');
+  const E = mapSvg('eu'), em = E.m;
+  flow(E.s, em.lines.atlantic, 'cool faint');
+  const cod = sv('g', {}, E.s);
+  [[3.0, 53.4], [4.6, 54.4], [2.2, 54.3], [5.6, 55.2]].forEach(([lo, la]) => {
+    const [x, y] = E.P(lo, la), o = sv('g', { transform: `translate(${x},${y})` }, cod), c = sv('g', { class: 'cod' }, o);
+    sv('path', { d: FISH, fill: '#A9C1D3', transform: 'scale(1.3)' }, c);
+  });
+  mlabel(cod, E.P(5.0, 56.4), 'タラ', 'Kabeljau');
+  const mack = sv('g', {}, E.s);
+  for (let i = 0; i < 5; i++) fishAlong(mack, em.lines.mackerel, '#7FE0B0', 6, 1.4 + i * 1.2, 1.1);
+  mlabel(mack, E.P(-23.0, 61.6), 'サバ', 'Makrele');
+  const sard = sv('g', { class: 'later' }, E.s);
+  for (let i = 0; i < 6; i++) fishAlong(sard, em.lines.sardine, '#FFD166', 5.5, 3.2 + i * .8, .9);
+  mlabel(sard, E.P(-14.5, 46.2), 'イワシ', 'Sardine');
+  box.append(figure(J.s, '日本', 'Japan'), figure(E.s, 'ヨーロッパ', 'Europa'));
+  at(1.2, () => cod.querySelectorAll('.cod').forEach(c => c.classList.add('leave')));
+  at(3.0, () => sard.classList.add('in'));
+}
+function visJpFish(box, at){
+  if (!MAPS) return visFallback(box, at, [['ブリ → 北海道', 'Gelbschwanz zieht bis Hokkaido'], ['漁獲 約1/4', 'Sanma, Kalmar, Lachs: Fang auf ein Viertel']]);
+  const J = mapSvg('jp'), jm = J.m;
+  flow(J.s, jm.lines.tsushima, 'warm faint');
+  const buri = sv('g', { class: 'later' }, J.s);
+  for (let i = 0; i < 6; i++) fishAlong(buri, jm.lines.buri, '#FFB35C', 6.5, 1.6 + i * 1.1, 1.15);
+  mlabel(buri, J.P(142.0, 45.0), 'ブリ 1万トン超', 'Gelbschwanz: > 10.000 t');
+  box.classList.add('two');
+  const C = sv('svg', { viewBox: '0 0 320 330', class: 'map', role: 'img', 'aria-label': 'Fang 2014: 54,8 Mio. t, 2022: 13,7 Mio. t' });
+  const bars = sv('g', { class: 'later bars' }, C), H = 180, bw = 78, base = 275;
+  sv('text', { x: 160, y: 22, 'text-anchor': 'middle', class: 'mj', 'font-size': 17 }, bars).textContent = 'サンマ・スルメイカ・サケ';
+  sv('text', { x: 160, y: 42, 'text-anchor': 'middle', class: 'md' }, bars).textContent = 'Sanma, Kalmar, Lachs';
+  sv('rect', { x: 52, y: base - H, width: bw, height: H, class: 'bar old' }, bars);
+  const b22 = sv('rect', { x: 190, y: base - H, width: bw, height: H, class: 'bar new' }, bars);
+  [['2014', 52, '54.8万t'], ['2022', 190, '13.7万t']].forEach(([yr, x, v]) => {
+    sv('text', { x: x + bw / 2, y: base + 28, 'text-anchor': 'middle', class: 'tall', 'font-size': 22 }, bars).textContent = yr;
+    sv('text', { x: x + bw / 2, y: base - H - 10, 'text-anchor': 'middle', class: 'mj v' + yr, 'font-size': 17 }, bars).textContent = v;
+  });
+  const v22 = bars.querySelector('.v2022'); v22.setAttribute('opacity', 0);
+  box.append(figure(J.s, '日本の周り', 'Meere um Japan'), figure(C, '漁獲量', 'Fang in Tonnen'));
+  at(1.4, () => buri.classList.add('in'));
+  at(4.2, () => bars.classList.add('in'));
+  at(5.2, () => b22.classList.add('shrink'));
+  at(6.6, () => { v22.setAttribute('y', base - H * 0.25 - 10); v22.setAttribute('opacity', 1); });
+}
+function visEuFish(box, at){
+  if (!MAPS) return visFallback(box, at, [['タラ ↓', 'Kabeljau verschwindet'], ['サバ → 北へ', 'Makrele laicht weiter nördlich'], ['イワシ ↑', 'Sardinen breiten sich aus']]);
+  const E = mapSvg('eu'), em = E.m;
+  flow(E.s, em.lines.atlantic, 'cool faint');
+  const cod = sv('g', {}, E.s);
+  [[3.0, 53.4], [4.6, 54.4], [2.2, 54.3], [5.6, 55.2]].forEach(([lo, la]) => {
+    const [x, y] = E.P(lo, la), o = sv('g', { transform: `translate(${x},${y})` }, cod), c = sv('g', { class: 'cod' }, o);
+    sv('path', { d: FISH, fill: '#A9C1D3', transform: 'scale(1.3)' }, c);
+  });
+  mlabel(cod, E.P(5.0, 56.4), 'タラ', 'Kabeljau');
+  const mack = sv('g', { class: 'later' }, E.s);
+  for (let i = 0; i < 5; i++) fishAlong(mack, em.lines.mackerel, '#7FE0B0', 6, 3.0 + i * 1.2, 1.1);
+  mlabel(mack, E.P(-23.0, 61.6), 'サバの産卵場', 'Laichgebiete Makrele');
+  const sard = sv('g', { class: 'later' }, E.s);
+  for (let i = 0; i < 6; i++) fishAlong(sard, em.lines.sardine, '#FFD166', 5.5, 5.4 + i * .8, .9);
+  mlabel(sard, E.P(-14.5, 46.2), 'イワシ・カタクチイワシ', 'Sardine, Sardelle');
+  box.append(figure(E.s, '北海と周辺', 'Nordsee und Umgebung'));
+  at(1.2, () => cod.querySelectorAll('.cod').forEach(c => c.classList.add('leave')));
+  at(3.0, () => mack.classList.add('in'));
+  at(5.4, () => sard.classList.add('in'));
+}
+function visHeat(box, at){
+  const d = document.createElement('div'); d.className = 'heat';
+  d.innerHTML = `<div class="big"><span class="num">+0.00</span><small>℃</small></div>
+    <p class="cap">2024年、日本近海の年平均海面水温<br><span>Meer um Japan 2024, Jahresmittel über normal</span></p>
+    <div class="mult"><span class="x2 later">×2<small>少なくとも<br>mindestens</small></span><span class="x10 later">×10<small>南日本では<br>im Süden Japans</small></span></div>
+    <p class="cap later c2">極端な高水温の起こりやすさ<br><span>Wahrscheinlichkeit extremer Meereshitze</span></p>`;
+  box.append(d);
+  const num = d.querySelector('.num');
+  at(1.0, () => {
+    const t0 = performance.now();
+    (function step(t){ const f = clamp01((t - t0) / 2200), e = 1 - Math.pow(1 - f, 3); num.textContent = '+' + (1.44 * e).toFixed(2); if (f < 1) requestAnimationFrame(step); })(t0);
+  });
+  at(4.2, () => { d.querySelector('.x2').classList.add('in'); d.querySelector('.c2').classList.add('in'); });
+  at(5.8, () => d.querySelector('.x10').classList.add('in'));
+}
+function visOcean(box, at){
+  const s = sv('svg', { viewBox: '0 0 520 420', class: 'donut', role: 'img', 'aria-label': '91 Prozent Meer, 5 Prozent Land, 3 Prozent Eis, 1 Prozent Luft' });
+  const ox = 210, oy = 210, r = 150, C = 2 * Math.PI * r;
+  sv('circle', { cx: ox, cy: oy, r, class: 'track' }, s);
+  const parts = [[91, '#FF8A3D'], [5, '#C9A27A'], [3, '#EAF3F6'], [1, '#8AA3B3']];
+  let acc = 0; const arcs = [];
+  for (const [v, c] of parts){
+    const a = sv('circle', { cx: ox, cy: oy, r, class: 'seg', stroke: c, 'stroke-dasharray': `0 ${C}`, transform: `rotate(${-90 + acc * 3.6} ${ox} ${oy})` }, s);
+    arcs.push([a, v]); acc += v;
+  }
+  const big = sv('text', { x: ox, y: oy + 18, 'text-anchor': 'middle', class: 'dnum' }, s); big.textContent = '0%';
+  sv('text', { x: ox, y: oy + 52, 'text-anchor': 'middle', class: 'mj' }, s).textContent = '海 Meer';
+  const leg = sv('g', { class: 'later' }, s);
+  [['陸 Land', '5%', '#C9A27A'], ['氷 Eis', '3%', '#EAF3F6'], ['大気 Luft', '1%', '#8AA3B3']].forEach(([n, v, c], i) => {
+    sv('rect', { x: 395, y: 150 + i * 44, width: 14, height: 14, rx: 3, fill: c }, leg);
+    sv('text', { x: 418, y: 162 + i * 44, class: 'md', 'font-size': 15 }, leg).textContent = n + '  ' + v;
+  });
+  box.append(s);
+  at(1.0, () => {
+    const [a, v] = arcs[0]; a.style.transition = 'stroke-dasharray 2.4s cubic-bezier(.3,.7,.2,1)';
+    a.setAttribute('stroke-dasharray', `${C * v / 100} ${C}`);
+    const t0 = performance.now();
+    (function step(t){ const f = clamp01((t - t0) / 2400), e = 1 - Math.pow(1 - f, 3); big.textContent = Math.round(91 * e) + '%'; if (f < 1) requestAnimationFrame(step); })(t0);
+  });
+  at(3.4, () => { arcs.slice(1).forEach(([a, v]) => a.setAttribute('stroke-dasharray', `${Math.max(2, C * v / 100 - 3)} ${C}`)); leg.classList.add('in'); });
+}
+
+/* =====================================================================
+   11. Maus: Werte zeigen, Klick spielt das Jahr
+   ===================================================================== */
+const tip = $('#tip');
+function showTip(i, ev){
+  if (state === 'play' || state === 'coda') return;
+  const row = (name, a, k) => `<div class="r"><span>${name}${REC[k].has(i) ? '<em>記録</em>' : ''}</span><span style="color:${css(rgbFor(a))}">${fmt(a)} °C</span></div>`;
+  tip.innerHTML = `<b>${FIRST + i}</b>` + row('日本海', JP[i], 'jp') + row('Nordsee / NW-Europa', EU[i], 'eu');
+  tip.classList.add('show'); moveTip(ev);
+}
+function moveTip(ev){
+  tip.style.left = Math.min(innerWidth - 240, ev.clientX + 18) + 'px';
+  tip.style.top = Math.max(10, ev.clientY - 96) + 'px';
+}
+function hideTip(){ tip.classList.remove('show'); }
+function pluck(i){
+  if (state === 'play') return;
+  audio();
+  voice(freqFor(JP[i]), 0, 'jp', clamp01(JP[i] - 1)); voice(freqFor(EU[i]), .17, 'eu');
+  addRipple(cx(i), G.laneTop, .8); addRipple(cx(i), G.laneBot, .8);
+  spawn('jp', i, 12, true);
+}
+
+/* =====================================================================
+   12. Demo ohne Objekt – gleiches Tempo wie der ESP32
+   ===================================================================== */
+let demoT = [];
+function cancelDemo(){ demoT.forEach(clearTimeout); demoT = []; }
+function demo(){
+  audio(); cancelDemo(); startPlay(true);
+  let t = 1450;
+  for (let i = 0; i < N; i++){
+    const y = FIRST + i;
+    if (i > 0 && y % 10 === 0) t += 500;
+    demoT.push(setTimeout(() => showYear(y, JP[i], EU[i], true), t));
+    t += y >= 2020 ? 800 : 550;
+  }
+}
+
+/* =====================================================================
+   13. ESP32 über USB (Web Serial) – verbindet sich selbst wieder
+   ===================================================================== */
+const LINE = /(\d{4})\s+JP\s+([+-]?\d+(?:\.\d+)?)\s+EU\s+([+-]?\d+(?:\.\d+)?)/;
+const HAS_SERIAL = 'serial' in navigator && !/firefox/i.test(navigator.userAgent);
+const dotEl = $('#dot'), statEl = $('#stat'), warnEl = $('#warn');
+const warns = new Map();
+function status(msg){ statEl.textContent = msg; }
+function warn(key, msg){ if (msg) warns.set(key, msg); else warns.delete(key); warnEl.textContent = [...warns.values()].join('  /  '); }
+function setConn(on, msg){ dotEl.classList.toggle('on', on); status(msg || (on ? 'Verbunden' : 'Nicht verbunden')); }
+let port = null;
+
+async function openPort(p, quiet){
+  if (port) return true;
+  status('Verbinde …');
+  for (let n = 0; n < 3; n++){
+    try { await p.open({ baudRate: 115200 }); break; }
+    catch (e){
+      if (e.name === 'InvalidStateError') break;   // war schon offen
+      if (n === 2){ setConn(false, quiet ? 'Objekt nicht erreichbar' : `Fehler: ${e.name}. Ist der serielle Monitor in Arduino geschlossen?`); return false; }
+      await sleep(1200);
+    }
+  }
+  port = p;
+  try { await p.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch (e){}
+  setConn(true);
+  readLoop(p);
+  return true;
+}
+async function readLoop(p){
+  const dec = new TextDecoder(); let buf = '';
+  while (p.readable && port === p){
+    const reader = p.readable.getReader();
+    try {
+      for (;;){
+        const { value, done } = await reader.read(); if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let k;
+        while ((k = buf.indexOf('\n')) >= 0){ handleLine(buf.slice(0, k)); buf = buf.slice(k + 1); }
+        if (buf.length > 4000) buf = '';
+      }
+    } catch (e){ await sleep(150); }
+    finally { try { reader.releaseLock(); } catch (e){} }
+  }
+  if (port === p){ port = null; setConn(false, 'Verbindung getrennt, warte auf USB …'); }
+}
+function handleLine(line){
+  if (/^\s*START/.test(line)){ startPlay(); return; }
+  const m = line.match(LINE); if (m) showYear(+m[1], +m[2], +m[3]);
+}
+async function connectClick(){
+  audio();
+  if (!HAS_SERIAL){ status('Bitte in Chrome oder Edge öffnen'); return; }
+  if (port){ status('Verbunden'); return; }
+  try { const p = await navigator.serial.requestPort(); await openPort(p); } catch (e){ /* Dialog abgebrochen */ }
+}
+async function autoConnect(){
+  if (!HAS_SERIAL){ status('Bitte in Chrome oder Edge öffnen'); return; }
+  const ports = await navigator.serial.getPorts();
+  for (const p of ports){ if (await openPort(p, true)) return; }
+  if (!ports.length) status('Einmal „Objekt verbinden“ klicken, danach automatisch');
+}
+if (HAS_SERIAL){
+  navigator.serial.addEventListener('connect', e => { if (!port) setTimeout(() => openPort(e.target, true), 800); });
+  navigator.serial.addEventListener('disconnect', e => { if (e.target === port){ port = null; setConn(false, 'USB getrennt, warte …'); } });
+}
+
+/* =====================================================================
+   14. Bedienung
+   ===================================================================== */
+const badgeEl = $('#badge'); let badgeT = null;
+function badge(text, ms){
+  clearTimeout(badgeT); badgeEl.textContent = text; badgeEl.classList.toggle('show', !!text);
+  if (text && ms) badgeT = setTimeout(() => badgeEl.classList.remove('show'), ms);
+}
+function updateButtons(){
+  $('#bTalk').classList.toggle('act', OPT.talk);
+  $('#bBeamer').classList.toggle('act', OPT.beamer);
+  $('#bSound').firstChild.textContent = A.muted ? 'Ton an ' : 'Ton aus ';
+}
+function setTalk(on, quiet){
+  OPT.talk = on; updateButtons();
+  if (!quiet) badge(on ? 'Vortragsmodus: Fazit mit Pfeiltasten' : 'Ausstellungsmodus', 2400);
+  if (state === 'coda') showScene(coda.i);
+}
+function setBeamer(on){ OPT.beamer = on; B.classList.toggle('beamer', on); updateButtons(); badge(on ? 'Beamer-Kontrast an' : 'Beamer-Kontrast aus', 1600); }
+function toggleFull(){ document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {}); }
+
+$('#bConnect').onclick = connectClick;
+$('#bDemo').onclick = demo;
+$('#bCoda').onclick = () => { audio(); startCoda(); };
+$('#bTalk').onclick = () => setTalk(!OPT.talk);
+$('#bBeamer').onclick = () => setBeamer(!OPT.beamer);
+$('#bSound').onclick = () => { audio(); setMuted(!A.muted); };
+$('#bFull').onclick = toggleFull;
+
+addEventListener('keydown', e => {
+  wake(); audio();
+  if (e.target.closest && e.target.closest('button')) return;
+  const k = e.key;
+  if (k === ' '){
+    e.preventDefault();
+    if (state === 'coda'){ Seq.paused = !Seq.paused; badge(Seq.paused ? 'Pause' : ''); }
+    else if (state === 'end') startCoda();
+    return;
+  }
+  if (k === 'ArrowRight'){ if (state === 'coda') nextScene(); else if (state === 'end') startCoda(); return; }
+  if (k === 'ArrowLeft'){ if (state === 'coda') showScene(coda.i - 1); return; }
+  if (k === 'Escape'){ goIdle(); return; }
+  const l = k.toLowerCase();
+  if (l === 'd') demo();
+  else if (l === 's') startCoda();
+  else if (l === 'p') setTalk(!OPT.talk);
+  else if (l === 'b') setBeamer(!OPT.beamer);
+  else if (l === 'm') setMuted(!A.muted);
+  else if (l === 'f') toggleFull();
+  else if (l === 'i') goIdle();
+});
+addEventListener('pointerdown', () => audio(), { passive: true });
+
+let calmT = null, lastMove = 0;
+function wake(){ B.classList.remove('calm'); clearTimeout(calmT); calmT = setTimeout(() => B.classList.add('calm'), 4500); }
+addEventListener('pointermove', ev => {
+  wake();
+  const t = performance.now();
+  if (RED_MOTION || t - lastMove < 140 || state === 'coda') return; lastMove = t;
+  addRipple(ev.clientX, ev.clientY, .18);
+});
+
+/* =====================================================================
+   15. Bildschleife, Qualitätsanpassung, Start
+   ===================================================================== */
+let lastF = performance.now(), perfAcc = 0, perfN = 0, perfSkip = 120;
+function perfCheck(dt){
+  if (!SH || OPT.q !== 'auto') return;
+  if (perfSkip > 0){ perfSkip--; return; }
+  perfAcc += dt; perfN++;
+  if (perfN < 90) return;
+  const avg = perfAcc / perfN; perfAcc = 0; perfN = 0;
+  if (avg > .024 && fieldScale > .36){
+    fieldScale = Math.max(.36, fieldScale * .8); resizeField();
+    if (fieldScale < .45) MAXP = 300;
+    warn('gpu', `Grafik reduziert (${Math.round(fieldScale * 100)} %)`);
+  }
+}
+function frame(now){
+  requestAnimationFrame(frame);
+  const dt = Math.min(.05, Math.max(0, (now - lastF) / 1000)); lastF = now;
+  if (!G) return;
+  const t = clock();
+  heat += (heatT - heat) * (1 - Math.exp(-dt * 1.5));
+  beamOn += ((state === 'play' ? 1 : 0) - beamOn) * (1 - Math.exp(-dt * 4));
+  beamX = beamX < -1e4 ? beamTarget : beamX + (beamTarget - beamX) * (1 - Math.exp(-dt * 9));
+  stepIntensity(dt, t);
+  updateSweep(t);
+  Seq.tick(now);
+  stepEmbers(dt, t);
+  renderField(t);
+  if (movers.length) moveFish(now);
+  if (state === 'coda'){
+    const sp = cProg.children[coda.i];
+    if (sp) sp.firstChild.style.width = OPT.talk ? '100%' : (clamp01(Seq.t / coda.dur) * 100).toFixed(2) + '%';
+  }
+  perfCheck(dt);
+}
+
+let rT = null;
+addEventListener('resize', () => { clearTimeout(rT); rT = setTimeout(() => { build(); resizeField(); resizeEmbers(); }, 150); });
+
+initField();
+build();
+resizeEmbers();
+setState('idle');
+setBoard(null);
+nextFact();
+setInterval(() => { if (state === 'idle') nextFact(); }, 9000);
+B.classList.toggle('beamer', OPT.beamer);
+setTalk(OPT.talk, true);
+if (document.fonts) document.fonts.ready.then(() => build());
+requestAnimationFrame(frame);
+autoConnect();
+wake();
+if (OPT.reload > 0) setInterval(() => { if (state === 'idle' && performance.now() > OPT.reload * 3.6e6) location.reload(); }, 60000);
+</script>
+</body>
+</html>

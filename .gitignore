@@ -1,0 +1,6 @@
+# fonts and map source are downloaded locally, see web/src/build.py and make_maps.py
+web/src/fonts/
+web/src/ne_50m_land.geojson
+__pycache__/
+*.pyc
+.DS_Store
